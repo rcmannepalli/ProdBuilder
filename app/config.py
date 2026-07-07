@@ -42,7 +42,7 @@ PROVIDER_KINDS = {
 
 DEFAULT_MAX_FIX_ATTEMPTS = 3
 DEFAULT_POLL_INTERVAL_SEC = 60
-DEFAULT_TEST_COMMAND = "pytest -q"
+DEFAULT_TEST_COMMAND = "python -m pytest -q"
 
 APP_NAME = "ProdBuilder"
 APP_TAGLINE = "Autonomous Product Engineering"

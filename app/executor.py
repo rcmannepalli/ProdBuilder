@@ -172,6 +172,12 @@ def run_tests(target_folder: str, test_command: str,
                          f"Command '{test_command}' is not in the allow-list.", 0)
     env = dict(os.environ)
     env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    # Put the project root on PYTHONPATH so tests can import top-level modules
+    # (e.g. `import main` / `import app`) regardless of where the test file
+    # lives. Bare `pytest` otherwise only adds the test file's own directory to
+    # sys.path, which breaks `tests/test_*.py` importing project-root modules.
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(root) + (os.pathsep + existing_pp if existing_pp else "")
     start = time.time()
     try:
         proc = subprocess.run(

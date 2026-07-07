@@ -157,6 +157,22 @@ def test_run_tests_executes(tmp_path):
     assert result.passed, result.stderr
 
 
+def test_run_tests_can_import_root_module_from_tests_dir(tmp_path):
+    """Regression: a test under tests/ must be able to import a project-root
+    module. Bare pytest puts only tests/ on sys.path; the PYTHONPATH fix adds
+    the project root so `import main` resolves."""
+    target = str(tmp_path / "proj")
+    write_files(target, [
+        {"path": "main.py", "content": "def add(a, b):\n    return a + b\n"},
+        {"path": "tests/test_main.py",
+         "content": "import main\n\ndef test_add():\n    assert main.add(2, 3) == 5\n"},
+    ])
+    # Both bare pytest and `python -m pytest` must now succeed.
+    for cmd in ("pytest -q", "python -m pytest -q"):
+        result = run_tests(target, cmd, timeout=60)
+        assert result.passed, f"{cmd} failed: {result.stdout}\n{result.stderr}"
+
+
 # --- llm helpers -----------------------------------------------------------
 
 def test_extract_json_variants():
