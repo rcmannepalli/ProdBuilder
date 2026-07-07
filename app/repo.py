@@ -10,6 +10,7 @@ from .config import (
     DEFAULT_OLLAMA_URL,
     DEFAULT_POLL_INTERVAL_SEC,
     DEFAULT_TEST_COMMAND,
+    PROVIDER_KINDS,
 )
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,10 @@ def ensure_settings(pid: int) -> None:
             DEFAULT_TEST_COMMAND, db.now(),
         ),
     )
+    # Always seed a default platform so at least one exists regardless of the
+    # order in which providers/settings are first touched.
+    if not db.query_one("SELECT id FROM providers WHERE project_id = ?", (pid,)):
+        add_provider(pid, "Ollama Cloud", "ollama_cloud", DEFAULT_OLLAMA_URL, "")
 
 
 def get_settings(pid: int) -> dict:
@@ -105,8 +110,31 @@ def get_settings(pid: int) -> dict:
     row = db.query_one("SELECT * FROM settings WHERE project_id = ?", (pid,))
     assert row is not None
     row["model_map"] = db.loads(row.get("model_map_json"), dict(DEFAULT_MODEL_MAP))
+    row["provider_map"] = db.loads(row.get("provider_map_json"), {})
     row["api_key"] = secrets.decrypt(row.get("ollama_api_key_enc") or "")
     row["api_key_masked"] = secrets.mask(row["api_key"])
+
+    # Ensure at least one provider exists (bootstrap from legacy fields).
+    providers = list_providers(pid)
+    if not providers:
+        add_provider(pid, "Ollama Cloud", "ollama_cloud",
+                     row["ollama_base_url"] or DEFAULT_OLLAMA_URL, row["api_key"])
+        providers = list_providers(pid)
+    row["providers"] = providers
+
+    # Resolve each role -> concrete endpoint (base_url, api_key, model, provider).
+    default_provider = next((p for p in providers if p["enabled"]), providers[0])
+    by_id = {p["id"]: p for p in providers}
+    role_endpoints: dict[str, dict] = {}
+    for role in DEFAULT_MODEL_MAP:
+        model = row["model_map"].get(role) or DEFAULT_MODEL_MAP[role]
+        prov = by_id.get(row["provider_map"].get(role)) or default_provider
+        role_endpoints[role] = {
+            "provider_id": prov["id"], "provider_name": prov["name"],
+            "kind": prov["kind"], "base_url": prov["base_url"],
+            "api_key": prov["api_key"], "model": model,
+        }
+    row["role_endpoints"] = role_endpoints
     return row
 
 
@@ -124,6 +152,9 @@ def update_settings(pid: int, **fields: Any) -> None:
     if "model_map" in fields:
         sets.append("model_map_json = ?")
         params.append(db.dumps(fields["model_map"]))
+    if "provider_map" in fields:
+        sets.append("provider_map_json = ?")
+        params.append(db.dumps(fields["provider_map"]))
     for key in ("max_fix_attempts", "poll_interval_sec"):
         if key in fields:
             sets.append(f"{key} = ?")
@@ -140,6 +171,59 @@ def update_settings(pid: int, **fields: Any) -> None:
     params.append(db.now())
     params.append(pid)
     db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE project_id = ?", params)
+
+
+# ---------------------------------------------------------------------------
+# Providers (LLM platforms)
+# ---------------------------------------------------------------------------
+
+def add_provider(pid: int, name: str, kind: str, base_url: str,
+                 api_key: str = "", enabled: bool = True) -> int:
+    return db.insert_returning_id(
+        "INSERT INTO providers (project_id, name, kind, base_url, api_key_enc,"
+        " enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (pid, name, kind, base_url, secrets.encrypt(api_key or ""),
+         bool(enabled), db.now()),
+    )
+
+
+def list_providers(pid: int) -> list[dict]:
+    rows = db.query(
+        "SELECT * FROM providers WHERE project_id = ? ORDER BY id", (pid,))
+    for r in rows:
+        r["api_key"] = secrets.decrypt(r.get("api_key_enc") or "")
+        r["api_key_masked"] = secrets.mask(r["api_key"])
+        r["kind_label"] = PROVIDER_KINDS.get(r["kind"], {}).get("label", r["kind"])
+    return rows
+
+
+def get_provider(prov_id: int) -> dict | None:
+    r = db.query_one("SELECT * FROM providers WHERE id = ?", (prov_id,))
+    if r:
+        r["api_key"] = secrets.decrypt(r.get("api_key_enc") or "")
+    return r
+
+
+def update_provider(prov_id: int, **fields: Any) -> None:
+    sets, params = [], []
+    for key in ("name", "kind", "base_url"):
+        if key in fields:
+            sets.append(f"{key} = ?")
+            params.append(fields[key])
+    if fields.get("api_key"):
+        sets.append("api_key_enc = ?")
+        params.append(secrets.encrypt(fields["api_key"]))
+    if "enabled" in fields:
+        sets.append("enabled = ?")
+        params.append(bool(fields["enabled"]))
+    if not sets:
+        return
+    params.append(prov_id)
+    db.execute(f"UPDATE providers SET {', '.join(sets)} WHERE id = ?", params)
+
+
+def delete_provider(prov_id: int) -> None:
+    db.execute("DELETE FROM providers WHERE id = ?", (prov_id,))
 
 
 # ---------------------------------------------------------------------------

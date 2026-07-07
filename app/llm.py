@@ -20,9 +20,32 @@ class LLMConfig:
     base_url: str
     api_key: str
     model_map: dict[str, str]
+    # Optional per-role endpoints: role -> {base_url, api_key, model, kind, ...}.
+    # When present, they take precedence over the flat base_url/api_key/model_map,
+    # enabling a different platform (Ollama Cloud, local Ollama, llama.cpp, …) per
+    # role. When absent, behaviour is identical to the single-provider config.
+    role_endpoints: dict[str, dict] | None = None
+
+    @classmethod
+    def from_settings(cls, settings: dict) -> "LLMConfig":
+        return cls(
+            base_url=settings.get("ollama_base_url", ""),
+            api_key=settings.get("api_key", ""),
+            model_map=settings.get("model_map", {}),
+            role_endpoints=settings.get("role_endpoints"),
+        )
 
     def model_for(self, role: str) -> str:
+        if self.role_endpoints and self.role_endpoints.get(role, {}).get("model"):
+            return self.role_endpoints[role]["model"]
         return self.model_map.get(role) or next(iter(self.model_map.values()), "")
+
+    def endpoint_for(self, role: str) -> tuple[str, str]:
+        """Return (base_url, api_key) for a role's assigned provider."""
+        if self.role_endpoints and role in self.role_endpoints:
+            e = self.role_endpoints[role]
+            return e.get("base_url") or self.base_url, e.get("api_key") or self.api_key
+        return self.base_url, self.api_key
 
 
 def _v1_url(base_url: str) -> str:
@@ -33,7 +56,9 @@ def _v1_url(base_url: str) -> str:
 
 
 class OllamaClient:
-    """Thin OpenAI-compatible chat client for Ollama Cloud."""
+    """OpenAI-compatible chat client. Resolves a per-role endpoint so different
+    roles can target different platforms (Ollama Cloud, local Ollama, llama.cpp,
+    or any OpenAI-compatible server)."""
 
     def __init__(self, cfg: LLMConfig, timeout: float = 180.0):
         self.cfg = cfg
@@ -42,6 +67,12 @@ class OllamaClient:
     def chat(self, role: str, system: str, user: str,
              temperature: float = 0.2, json_mode: bool = False) -> str:
         model = self.cfg.model_for(role)
+        base_url, api_key = self.cfg.endpoint_for(role)
+        return self._call(base_url, api_key, model, system, user,
+                          temperature, json_mode)
+
+    def _call(self, base_url: str, api_key: str, model: str, system: str,
+              user: str, temperature: float, json_mode: bool) -> str:
         payload: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -54,20 +85,20 @@ class OllamaClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         headers = {"Content-Type": "application/json"}
-        if self.cfg.api_key:
-            headers["Authorization"] = f"Bearer {self.cfg.api_key}"
-        url = _v1_url(self.cfg.base_url)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        url = _v1_url(base_url)
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
         return data["choices"][0]["message"]["content"]
 
-    def test_connection(self) -> tuple[bool, str]:
-        """Return (ok, message). Tries a minimal completion."""
+    def test_connection(self, role: str = "planner") -> tuple[bool, str]:
+        """Return (ok, message). Tries a minimal completion for a role."""
         try:
             out = self.chat(
-                "planner",
+                role,
                 "You are a health check. Reply with the single word: ok.",
                 "ping",
                 temperature=0.0,
@@ -77,6 +108,13 @@ class OllamaClient:
             return False, f"HTTP {e.response.status_code}: {e.response.text[:200]}"
         except Exception as e:  # noqa: BLE001
             return False, f"{type(e).__name__}: {e}"
+
+
+def test_endpoint(base_url: str, api_key: str, model: str) -> tuple[bool, str]:
+    """Health-check a specific provider endpoint directly."""
+    cfg = LLMConfig(base_url=base_url, api_key=api_key,
+                    model_map={"planner": model})
+    return OllamaClient(cfg, timeout=30.0).test_connection()
 
 
 def extract_json(text: str) -> Any:

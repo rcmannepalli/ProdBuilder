@@ -1,0 +1,42 @@
+{% if not path %}
+<div class="h-full flex items-center justify-center text-center bg-ink-50">
+  <div class="max-w-sm">
+    <div class="w-12 h-12 rounded-xl bg-brand-600 mx-auto flex items-center justify-center text-white text-xl font-bold mb-3">P</div>
+    <p class="text-ink-600 font-medium text-[13px]">No file open</p>
+    <p class="text-ink-400 text-[12px] mt-1">Select a file from the Explorer to view its
+      contents here. Files are written by the agents as each phase builds.</p>
+  </div>
+</div>
+{% else %}
+<div class="h-full flex flex-col">
+  <!-- Editor tab bar -->
+  <div class="flex items-center h-8 border-b border-ink-200 bg-white shrink-0">
+    <div class="flex items-center gap-1.5 px-3 h-full border-r border-ink-200 bg-ink-50">
+      <span class="text-[11px]">📄</span>
+      <span class="text-[12px] text-ink-700 font-mono">{{ path.split('/')[-1] }}</span>
+    </div>
+    <div class="flex-1 px-3 text-[10.5px] text-ink-400 font-mono truncate">{{ path }}</div>
+    <div class="px-3 text-[10.5px] text-ink-400 flex items-center gap-2">
+      <span>{{ lang }}</span>
+      {% if line_count %}<span>· {{ line_count }} lines</span>{% endif %}
+    </div>
+  </div>
+  <!-- Content with line numbers -->
+  <div class="flex-1 overflow-auto bg-white">
+    {% if status == 'ok' %}
+    <div class="flex font-mono text-[12px] leading-[1.5]">
+      <div class="select-none text-right text-ink-300 px-2.5 py-2 bg-ink-50 border-r border-ink-100 sticky left-0">
+        {%- for i in range(1, line_count + 1) -%}<div>{{ i }}</div>{%- endfor -%}
+      </div>
+      <pre class="py-2 px-3 text-ink-800 whitespace-pre flex-1">{{ content }}</pre>
+    </div>
+    {% elif status == 'binary' %}
+    <div class="p-4 text-ink-400 text-[12px]">Binary file — not shown.</div>
+    {% elif status == 'too_large' %}
+    <div class="p-4 text-ink-400 text-[12px]">File too large to preview.</div>
+    {% else %}
+    <div class="p-4 text-ink-400 text-[12px]">File not found (it may not have been written yet).</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

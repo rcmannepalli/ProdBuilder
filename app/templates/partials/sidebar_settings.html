@@ -1,0 +1,39 @@
+<div class="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-4">
+  <!-- General settings form -->
+  <form id="settings-form" hx-post="/projects/{{ project.id }}/settings"
+        hx-target="#set-saved" hx-swap="innerHTML" class="space-y-2.5">
+    <div class="flex items-center justify-between">
+      <span class="panel-title">Build Settings</span>
+      <span id="set-saved" class="text-[10px] text-ink-400"></span>
+    </div>
+    <div class="grid grid-cols-2 gap-2">
+      <div>
+        <label class="label">Max fix attempts</label>
+        <input name="max_fix_attempts" type="number" min="1" max="10" class="field !py-1"
+               value="{{ settings.max_fix_attempts }}" />
+      </div>
+      <div>
+        <label class="label">Poll interval (s)</label>
+        <input name="poll_interval_sec" type="number" min="15" class="field !py-1"
+               value="{{ settings.poll_interval_sec }}" />
+      </div>
+    </div>
+    <div>
+      <label class="label">Test command</label>
+      <input name="test_command" class="field font-mono !text-[11.5px]"
+             value="{{ settings.test_command or 'pytest -q' }}" />
+    </div>
+    <label class="flex items-center gap-2 text-[12px] text-ink-600 cursor-pointer select-none">
+      <input type="checkbox" name="auto_apply_changes" class="rounded border-ink-300"
+             {% if settings.auto_apply_changes %}checked{% endif %} />
+      Auto-apply requirement change proposals
+    </label>
+    <button type="submit" class="btn btn-primary !py-1.5 w-full justify-center">Save Settings</button>
+  </form>
+
+  <!-- Providers / platforms (the per-role fields below submit with settings-form) -->
+  <div id="providers-region">
+    {% include "partials/providers.html" %}
+  </div>
+  <div id="conn-result"></div>
+</div>

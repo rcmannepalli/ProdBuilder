@@ -75,6 +75,25 @@ def read_files(target_folder: str, limit: int = 60) -> dict[str, str]:
     return out
 
 
+def read_single_file(target_folder: str, rel_path: str,
+                     max_bytes: int = 400_000) -> tuple[str, str]:
+    """Read one file's content. Returns (content, status) where status is
+    'ok', 'missing', 'binary', or 'too_large'."""
+    root = _safe_target(target_folder)
+    try:
+        dest = _resolve_within(root, rel_path.lstrip("/"))
+    except ValueError:
+        return "", "missing"
+    if not dest.is_file():
+        return "", "missing"
+    if dest.stat().st_size > max_bytes:
+        return "", "too_large"
+    try:
+        return dest.read_text(encoding="utf-8"), "ok"
+    except (UnicodeDecodeError, OSError):
+        return "", "binary"
+
+
 def list_tree(target_folder: str, limit: int = 400) -> list[str]:
     root = _safe_target(target_folder)
     skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv"}
@@ -87,6 +106,52 @@ def list_tree(target_folder: str, limit: int = 400) -> list[str]:
         rel = str(path.relative_to(root))
         out.append(rel + ("/" if path.is_dir() else ""))
     return out
+
+
+def build_tree(target_folder: str, limit: int = 800) -> list[dict]:
+    """Return a nested tree of the target folder for a VS Code-style explorer.
+
+    Each node: {name, path, type: 'dir'|'file', children?: [...], ext}.
+    Directories are sorted first, then files, both alphabetically.
+    """
+    root = _safe_target(target_folder)
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv",
+                 ".pytest_cache", "dist", "build", ".mypy_cache"}
+    tree: dict = {"name": "", "path": "", "type": "dir", "children": {}}
+    count = 0
+    for path in sorted(root.rglob("*")):
+        if count >= limit:
+            break
+        parts = path.relative_to(root).parts
+        if any(p in skip_dirs for p in parts):
+            continue
+        count += 1
+        node = tree
+        for i, part in enumerate(parts):
+            is_last = i == len(parts) - 1
+            children = node["children"]
+            if part not in children:
+                is_dir = (not is_last) or path.is_dir()
+                rel = "/".join(parts[:i + 1])
+                children[part] = {
+                    "name": part, "path": rel,
+                    "type": "dir" if is_dir else "file",
+                    "ext": path.suffix.lstrip(".") if not is_dir else "",
+                    "children": {},
+                }
+            node = children[part]
+
+    def _finalize(node: dict) -> list[dict]:
+        items = list(node["children"].values())
+        for it in items:
+            if it["type"] == "dir":
+                it["children"] = _finalize(it)
+            else:
+                it.pop("children", None)
+        items.sort(key=lambda x: (x["type"] != "dir", x["name"].lower()))
+        return items
+
+    return _finalize(tree)
 
 
 def command_allowed(cmd: str) -> bool:

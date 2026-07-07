@@ -89,6 +89,58 @@ def test_write_read_and_traversal_guard(tmp_path):
         write_files(target, [{"path": "../escape.py", "content": "nope"}])
 
 
+def test_build_tree_is_nested_and_sorted(tmp_path):
+    from app.executor import build_tree
+    target = str(tmp_path / "proj")
+    write_files(target, [
+        {"path": "app/main.py", "content": "x"},
+        {"path": "app/db/models.py", "content": "y"},
+        {"path": "README.md", "content": "z"},
+    ])
+    tree = build_tree(target)
+    names = [(n["name"], n["type"]) for n in tree]
+    # Directory first, then file (dirs sorted before files).
+    assert names == [("app", "dir"), ("README.md", "file")]
+    app_node = tree[0]
+    child_names = {c["name"] for c in app_node["children"]}
+    assert "main.py" in child_names and "db" in child_names
+    db_node = next(c for c in app_node["children"] if c["name"] == "db")
+    assert db_node["type"] == "dir"
+    assert db_node["children"][0]["name"] == "models.py"
+
+
+def test_read_single_file_states(tmp_path):
+    from app.executor import read_single_file, write_files as wf
+    target = str(tmp_path / "r")
+    wf(target, [{"path": "a.py", "content": "hello\nworld\n"}])
+    content, status = read_single_file(target, "a.py")
+    assert status == "ok" and content == "hello\nworld\n"
+    assert read_single_file(target, "nope.py")[1] == "missing"
+    # Traversal is refused, reported as missing (never escapes).
+    assert read_single_file(target, "../secret")[1] == "missing"
+
+
+def test_providers_crud_and_per_role_resolution(tmp_path):
+    from app.llm import LLMConfig
+    pid = repo.create_project("Multi", str(tmp_path / "o"))
+    s = repo.get_settings(pid)
+    # A default provider is bootstrapped.
+    assert len(s["providers"]) == 1
+    local = repo.add_provider(pid, "Local", "llamacpp", "http://localhost:8080", "")
+    repo.update_settings(pid, provider_map={"coder": local},
+                         model_map={"coder": "qwen2.5-coder", "planner": "llama3"})
+    cfg = LLMConfig.from_settings(repo.get_settings(pid))
+    # Coder routes to llama.cpp; planner stays on the default cloud provider.
+    assert cfg.endpoint_for("coder")[0] == "http://localhost:8080"
+    assert cfg.model_for("coder") == "qwen2.5-coder"
+    assert cfg.endpoint_for("planner")[0] != "http://localhost:8080"
+    # Toggle + delete.
+    repo.update_provider(local, enabled=False)
+    assert not repo.get_provider(local)["enabled"]
+    repo.delete_provider(local)
+    assert all(p["id"] != local for p in repo.list_providers(pid))
+
+
 def test_command_allowlist():
     assert command_allowed("pytest -q")
     assert command_allowed("python -m pytest")

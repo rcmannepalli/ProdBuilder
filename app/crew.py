@@ -60,23 +60,25 @@ ROLE_PERSONAS: dict[str, tuple[str, str, str]] = {
 
 
 def _crew_llm(cfg: LLMConfig, role: str):
-    """Build a CrewAI LLM for a role targeting Ollama Cloud (OpenAI-compatible)."""
+    """Build a CrewAI LLM for a role targeting its assigned OpenAI-compatible
+    platform (Ollama Cloud, local Ollama, llama.cpp, …)."""
     model = cfg.model_for(role)
-    base = (cfg.base_url or "").rstrip("/")
+    base_url, api_key = cfg.endpoint_for(role)
+    base = (base_url or "").rstrip("/")
     if not base.endswith("/v1"):
         base = base + "/v1"
-    # Ollama Cloud speaks the OpenAI protocol; use the openai provider prefix.
+    # All supported platforms speak the OpenAI protocol; use the openai prefix.
     return CrewLLM(
         model=f"openai/{model}",
         base_url=base,
-        api_key=cfg.api_key or "ollama",
+        api_key=api_key or "ollama",
     )
 
 
 def run_role(cfg: LLMConfig, role: str, system: str, user: str,
              json_mode: bool = False, temperature: float = 0.2) -> str:
     """Run one role's prompt and return the raw text output."""
-    if CREWAI_AVAILABLE and cfg.api_key:
+    if CREWAI_AVAILABLE:
         try:
             return _run_via_crewai(cfg, role, system, user, temperature)
         except Exception:  # noqa: BLE001 - degrade to direct call

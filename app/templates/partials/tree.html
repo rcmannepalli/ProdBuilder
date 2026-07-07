@@ -1,0 +1,36 @@
+{%- macro render_nodes(nodes, pid, selected) -%}
+{%- for n in nodes -%}
+  {%- if n.type == 'dir' -%}
+  <div x-data="{ open: true }">
+    <div class="tree-row" @click="open = !open">
+      <span class="tree-chevron" :class="open && 'rotate-90'">▶</span>
+      <span class="tree-ico">{% raw %}{% endraw %}<span x-show="open">📂</span><span x-show="!open">📁</span></span>
+      <span class="tree-name font-medium">{{ n.name }}</span>
+    </div>
+    <div x-show="open" class="tree-children">
+      {{ render_nodes(n.children, pid, selected) }}
+    </div>
+  </div>
+  {%- else -%}
+  <div class="tree-row tree-file {% if n.path == selected %}sel{% endif %}"
+       hx-get="/projects/{{ pid }}/file?path={{ n.path|urlencode }}"
+       hx-target="#editor" hx-swap="innerHTML"
+       @click="$dispatch('file-open', { path: '{{ n.path }}' })"
+       title="{{ n.path }}">
+    <span class="tree-chevron opacity-0">▶</span>
+    <span class="tree-ico">{{ {'py':'🐍','js':'📜','ts':'📘','json':'🔧','md':'📝','html':'🌐','css':'🎨','sql':'🗄️'}.get(n.ext, '📄') }}</span>
+    <span class="tree-name">{{ n.name }}</span>
+  </div>
+  {%- endif -%}
+{%- endfor -%}
+{%- endmacro -%}
+
+{% if empty %}
+<div class="px-3 py-4 text-[11.5px] text-ink-400 leading-relaxed">
+  Target folder is empty.<br>Generated files appear here as agents build.
+</div>
+{% else %}
+<div class="py-1">
+  {{ render_nodes(nodes, project_id, selected) }}
+</div>
+{% endif %}

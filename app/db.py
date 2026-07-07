@@ -39,6 +39,7 @@ CREATE SEQUENCE IF NOT EXISTS seq_tasks START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_test_runs START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_events START 1;
 CREATE SEQUENCE IF NOT EXISTS seq_proposals START 1;
+CREATE SEQUENCE IF NOT EXISTS seq_providers START 1;
 
 CREATE TABLE IF NOT EXISTS projects (
     id BIGINT PRIMARY KEY DEFAULT nextval('seq_projects'),
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS settings (
     ollama_base_url TEXT,
     ollama_api_key_enc TEXT,
     model_map_json TEXT,
+    provider_map_json TEXT,
     max_fix_attempts INTEGER DEFAULT 3,
     auto_apply_changes BOOLEAN DEFAULT FALSE,
     poll_interval_sec INTEGER DEFAULT 60,
@@ -120,6 +122,17 @@ CREATE TABLE IF NOT EXISTS agent_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS providers (
+    id BIGINT PRIMARY KEY DEFAULT nextval('seq_providers'),
+    project_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'ollama_cloud',
+    base_url TEXT,
+    api_key_enc TEXT,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS change_proposals (
     id BIGINT PRIMARY KEY DEFAULT nextval('seq_proposals'),
     project_id BIGINT NOT NULL,
@@ -137,6 +150,14 @@ def _init_schema(conn: duckdb.DuckDBPyConnection) -> None:
         s = stmt.strip()
         if s:
             conn.execute(s)
+    # Lightweight migrations for pre-existing databases.
+    for mig in (
+        "ALTER TABLE settings ADD COLUMN IF NOT EXISTS provider_map_json TEXT",
+    ):
+        try:
+            conn.execute(mig)
+        except Exception:  # noqa: BLE001 - column may already exist
+            pass
 
 
 # ---------------------------------------------------------------------------

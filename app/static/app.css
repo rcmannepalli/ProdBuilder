@@ -82,11 +82,36 @@ html, body { height: 100%; }
   border-bottom:2px solid transparent; cursor:pointer; }
 .tab-active { color:#4f46e5; border-bottom-color:#4f46e5; }
 
-/* Tree */
+/* Legacy flat tree (kept for compatibility) */
 .tree-item { padding:.12rem .4rem; border-radius:.3rem; font-size:12px;
   font-family: ui-monospace, monospace; cursor:pointer; color:#334155; }
 .tree-item:hover { background:#f1f5f9; }
 .tree-item.sel { background:#eef2ff; color:#4338ca; font-weight:600; }
+
+/* VS Code-style explorer tree */
+.tree-row { display:flex; align-items:center; gap:.25rem; padding:.12rem .4rem;
+  font-size:12.5px; cursor:pointer; color:#334155; user-select:none;
+  white-space:nowrap; border-radius:.25rem; }
+.tree-row:hover { background:#eef2ff; }
+.tree-file.sel { background:#e0e7ff; color:#3730a3; }
+.tree-chevron { font-size:8px; color:#94a3b8; width:10px; transition:transform .12s;
+  display:inline-block; flex-shrink:0; }
+.tree-ico { width:16px; text-align:center; flex-shrink:0; font-size:11px; }
+.tree-name { overflow:hidden; text-overflow:ellipsis; }
+.tree-children { margin-left:.6rem; border-left:1px solid #e2e8f0;
+  padding-left:.15rem; }
+
+/* Activity bar (VS Code left rail) */
+.actbar-btn { width:100%; height:44px; display:flex; align-items:center;
+  justify-content:center; color:#94a3b8; cursor:pointer; position:relative;
+  font-size:19px; border-left:2px solid transparent; transition:color .12s; }
+.actbar-btn:hover { color:#e2e8f0; }
+.actbar-btn.active { color:#fff; border-left-color:#6366f1; }
+.actbar-btn.active::after { content:''; }
+
+/* Sidebar */
+.sidebar-title { font-size:11px; font-weight:700; letter-spacing:.07em;
+  text-transform:uppercase; color:#64748b; }
 
 .fade-in { animation: fadein .25s ease; }
 @keyframes fadein { from{opacity:0; transform:translateY(2px)} to{opacity:1} }

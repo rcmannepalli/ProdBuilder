@@ -86,9 +86,7 @@ def stop_build(pid: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _cfg_for(pid: int) -> LLMConfig:
-    s = repo.get_settings(pid)
-    return LLMConfig(base_url=s["ollama_base_url"], api_key=s["api_key"],
-                     model_map=s["model_map"])
+    return LLMConfig.from_settings(repo.get_settings(pid))
 
 
 def _wait_if_paused(ctrl: Control) -> None:

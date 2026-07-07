@@ -26,6 +26,20 @@ DEFAULT_MODEL_MAP = {
     "monitor": DEFAULT_MODEL,
 }
 
+# Supported LLM platforms. All speak the OpenAI-compatible /v1 protocol, so the
+# client is uniform — kinds differ only in defaults, labels, and whether a key
+# is expected.
+PROVIDER_KINDS = {
+    "ollama_cloud": {"label": "Ollama Cloud", "base_url": "https://ollama.com",
+                     "needs_key": True},
+    "ollama": {"label": "Ollama (local)", "base_url": "http://localhost:11434",
+               "needs_key": False},
+    "llamacpp": {"label": "llama.cpp server", "base_url": "http://localhost:8080",
+                 "needs_key": False},
+    "openai_compatible": {"label": "OpenAI-compatible", "base_url": "",
+                          "needs_key": True},
+}
+
 DEFAULT_MAX_FIX_ATTEMPTS = 3
 DEFAULT_POLL_INTERVAL_SEC = 60
 DEFAULT_TEST_COMMAND = "pytest -q"

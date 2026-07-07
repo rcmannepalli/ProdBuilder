@@ -1,0 +1,15 @@
+<form class="flex-1 flex flex-col min-h-0 p-2.5"
+      hx-post="/projects/{{ project.id }}/requirements"
+      hx-target="#req-saved" hx-swap="innerHTML"
+      hx-trigger="input changed delay:1200ms from:textarea, submit">
+  <div class="flex items-center justify-between mb-1.5">
+    <span class="text-[10px] text-ink-400">
+      {% if requirements %}v{{ requirements.version_no }} · autosaves{% else %}Not saved yet{% endif %}
+    </span>
+    <span id="req-saved" class="text-[10px] text-ink-400"></span>
+  </div>
+  <textarea name="requirements" spellcheck="false"
+            class="field font-mono flex-1 min-h-0 resize-none leading-relaxed !text-[12px]"
+            placeholder="Describe the product to build. e.g.&#10;&#10;Build a REST API for a task manager with:&#10;- CRUD endpoints for tasks&#10;- SQLite storage&#10;- JWT auth&#10;- OpenAPI docs">{{ requirements.raw_text if requirements else '' }}</textarea>
+  <button class="btn btn-ghost !py-1 mt-2 justify-center" type="submit">Save Requirements</button>
+</form>

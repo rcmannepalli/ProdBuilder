@@ -9,8 +9,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agents, events, executor, repo
-from .config import APP_NAME, APP_TAGLINE, BASE_DIR, DEFAULT_MODEL_MAP
+from . import agents, events, executor, llm, repo
+from .config import (APP_NAME, APP_TAGLINE, BASE_DIR, DEFAULT_MODEL_MAP,
+                     PROVIDER_KINDS)
 from .db import get_conn
 from .llm import LLMConfig, OllamaClient
 from . import runner
@@ -51,6 +52,7 @@ def _dashboard_ctx(request: Request, project: dict | None) -> dict:
         "project": project,
         "roles": ROLES,
         "default_model_map": DEFAULT_MODEL_MAP,
+        "provider_kinds": PROVIDER_KINDS,
     }
     if project:
         pid = project["id"]
@@ -108,11 +110,15 @@ async def save_settings(request: Request, pid: int):
     form = await request.form()
     model_map = {role: (form.get(f"model_{role}") or "").strip() for role in ROLES}
     model_map = {k: v for k, v in model_map.items() if v}
+    provider_map = {}
+    for role in ROLES:
+        pv = (form.get(f"provider_{role}") or "").strip()
+        if pv:
+            provider_map[role] = int(pv)
     repo.update_settings(
         pid,
-        ollama_base_url=(form.get("ollama_base_url") or "").strip(),
-        api_key=(form.get("api_key") or "").strip(),
         model_map=model_map or dict(DEFAULT_MODEL_MAP),
+        provider_map=provider_map,
         max_fix_attempts=form.get("max_fix_attempts") or 3,
         poll_interval_sec=form.get("poll_interval_sec") or 60,
         auto_apply_changes=bool(form.get("auto_apply_changes")),
@@ -122,12 +128,57 @@ async def save_settings(request: Request, pid: int):
                                       {"request": request, "label": "Settings saved"})
 
 
+# --- providers -------------------------------------------------------------
+
+@app.post("/projects/{pid}/providers", response_class=HTMLResponse)
+async def add_provider(request: Request, pid: int):
+    form = await request.form()
+    kind = (form.get("kind") or "ollama_cloud").strip()
+    name = (form.get("name") or PROVIDER_KINDS.get(kind, {}).get("label", kind)).strip()
+    base_url = (form.get("base_url") or
+                PROVIDER_KINDS.get(kind, {}).get("base_url", "")).strip()
+    repo.add_provider(pid, name, kind, base_url, (form.get("api_key") or "").strip())
+    return _providers_partial(request, pid)
+
+
+@app.post("/projects/{pid}/providers/{prov_id}/toggle", response_class=HTMLResponse)
+async def toggle_provider(request: Request, pid: int, prov_id: int):
+    prov = repo.get_provider(prov_id)
+    if prov:
+        repo.update_provider(prov_id, enabled=not prov["enabled"])
+    return _providers_partial(request, pid)
+
+
+@app.post("/projects/{pid}/providers/{prov_id}/delete", response_class=HTMLResponse)
+async def remove_provider(request: Request, pid: int, prov_id: int):
+    repo.delete_provider(prov_id)
+    return _providers_partial(request, pid)
+
+
+@app.post("/projects/{pid}/providers/{prov_id}/test", response_class=HTMLResponse)
+async def test_provider(request: Request, pid: int, prov_id: int):
+    prov = repo.get_provider(prov_id)
+    model = repo.get_settings(pid)["model_map"].get("planner") or DEFAULT_MODEL_MAP["planner"]
+    ok, msg = await asyncio.to_thread(
+        llm.test_endpoint, prov["base_url"], prov["api_key"], model)
+    return templates.TemplateResponse(request, "partials/conn_result.html",
+                                      {"request": request, "ok": ok, "message": msg})
+
+
+def _providers_partial(request: Request, pid: int):
+    s = repo.get_settings(pid)
+    return templates.TemplateResponse(request, "partials/providers.html", {
+        "request": request, "project": repo.get_project(pid),
+        "settings": s, "roles": ROLES, "provider_kinds": PROVIDER_KINDS,
+        "default_model_map": DEFAULT_MODEL_MAP,
+    })
+
+
 @app.post("/projects/{pid}/settings/test", response_class=HTMLResponse)
 async def test_connection(request: Request, pid: int):
-    s = repo.get_settings(pid)
-    cfg = LLMConfig(s["ollama_base_url"], s["api_key"], s["model_map"])
+    cfg = LLMConfig.from_settings(repo.get_settings(pid))
     ok, msg = await asyncio.to_thread(OllamaClient(cfg).test_connection)
-    return templates.TemplateResponse(request, 
+    return templates.TemplateResponse(request,
         "partials/conn_result.html",
         {"request": request, "ok": ok, "message": msg})
 
@@ -140,8 +191,7 @@ async def test_connection(request: Request, pid: int):
 async def generate_plan(request: Request, pid: int):
     reqs = repo.latest_requirements(pid)
     raw = reqs["raw_text"] if reqs else ""
-    s = repo.get_settings(pid)
-    cfg = LLMConfig(s["ollama_base_url"], s["api_key"], s["model_map"])
+    cfg = LLMConfig.from_settings(repo.get_settings(pid))
 
     def _build():
         structured = agents.parse_requirements(cfg, raw)
@@ -280,22 +330,42 @@ async def proposal_action(request: Request, pid: int, cp_id: int, action: str):
 
 
 # ---------------------------------------------------------------------------
-# Files / diffs
+# Explorer (nested tree) + editor
 # ---------------------------------------------------------------------------
 
-@app.get("/projects/{pid}/files", response_class=HTMLResponse)
-async def get_files(request: Request, pid: int, path: str = ""):
+@app.get("/projects/{pid}/tree", response_class=HTMLResponse)
+async def get_tree(request: Request, pid: int, selected: str = ""):
     project = repo.get_project(pid)
     target = project["target_folder"] if project else ""
-    tree = executor.list_tree(target) if target else []
-    content = ""
-    if path:
-        files = executor.read_files(target, limit=500)
-        content = files.get(path, "(binary or missing file)")
-    return templates.TemplateResponse(request, 
-        "partials/files.html",
-        {"request": request, "project_id": pid, "tree": tree,
-         "selected": path, "content": content})
+    tree = executor.build_tree(target) if target else []
+    return templates.TemplateResponse(request, "partials/tree.html", {
+        "request": request, "project_id": pid, "nodes": tree,
+        "selected": selected, "empty": not tree})
+
+
+@app.get("/projects/{pid}/file", response_class=HTMLResponse)
+async def get_file(request: Request, pid: int, path: str = ""):
+    project = repo.get_project(pid)
+    target = project["target_folder"] if project else ""
+    content, status = ("", "missing")
+    if target and path:
+        content, status = executor.read_single_file(target, path)
+    lang = _lang_for(path)
+    return templates.TemplateResponse(request, "partials/editor.html", {
+        "request": request, "project_id": pid, "path": path,
+        "content": content, "status": status, "lang": lang,
+        "line_count": content.count("\n") + 1 if content else 0})
+
+
+def _lang_for(path: str) -> str:
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return {
+        "py": "Python", "js": "JavaScript", "ts": "TypeScript",
+        "tsx": "TypeScript", "jsx": "JavaScript", "html": "HTML", "css": "CSS",
+        "json": "JSON", "md": "Markdown", "sql": "SQL", "go": "Go", "rs": "Rust",
+        "java": "Java", "yml": "YAML", "yaml": "YAML", "toml": "TOML",
+        "sh": "Shell", "txt": "Text",
+    }.get(ext, ext.upper() or "Text")
 
 
 @app.get("/healthz")

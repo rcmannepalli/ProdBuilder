@@ -34,8 +34,24 @@ Everything streams live to a compact, enterprise-styled **Monitor** panel.
 | Styling | Tailwind CSS (compact, corporate theme) |
 | Storage | DuckDB (embedded) |
 | Agents | CrewAI (with a direct-Ollama fallback so the loop runs even without CrewAI) |
-| LLMs | Ollama Cloud (OpenAI-compatible endpoint) |
+| LLMs | Any OpenAI-compatible platform — Ollama Cloud, local Ollama, llama.cpp, or a generic endpoint — assignable per agent role |
 | Live updates | Server-Sent Events (SSE) |
+
+### Interface
+
+A VS Code-style workspace: an **activity bar** (Explorer · Requirements · Build
+Plan · Monitor · Settings), a **collapsible sidebar**, a central **editor** that
+shows the generated files, and a live **Monitor** panel. The Explorer is a real
+nested file/folder tree of the target folder — click any file to view its
+contents (with line numbers) in the editor as the agents write it.
+
+### Multiple LLM platforms
+
+Add several platforms in Settings (Ollama Cloud, local Ollama, llama.cpp, or any
+OpenAI-compatible server), enable the ones you want, and assign a platform +
+model **per role** — e.g. Ollama Cloud for planning and a local llama.cpp for the
+coding/fix loop. All platforms speak the OpenAI `/v1` protocol, so the client is
+uniform.
 
 See [`docs/PRD.md`](docs/PRD.md) for the full product requirements document and
 phased build plan.
@@ -61,13 +77,16 @@ python run.py                            # http://127.0.0.1:8000
 Then in the browser:
 
 1. **New Project** → give it a name and an absolute target folder.
-2. **Settings** tab → enter your Ollama Cloud **Base URL** (e.g. `https://ollama.com`),
-   **API key**, and the **model per role** (planner / coder / tester / fixer /
-   reviewer / monitor). Click **Test** to verify the connection.
-3. **Requirements** tab → describe the product. It autosaves.
-4. **Regenerate Plan** → the Architect agent produces the phased plan.
+2. **Settings** (⚙️ in the activity bar) → under **LLM Platforms**, add a platform
+   (e.g. Ollama Cloud with your base URL + API key), then assign a **platform and
+   model per role** (planner / coder / tester / fixer / reviewer / monitor).
+   Click **Test** on a platform to verify the connection.
+3. **Requirements** (📝) → describe the product. It autosaves.
+4. **Build Plan** (📋) → **Regenerate** to have the Architect agent produce the
+   phased plan.
 5. **Start Build** → watch the agents build, test, fix, and validate each phase
-   live in the **Activity** monitor.
+   in the **Monitor**; open the **Explorer** (🗂) to browse the generated files
+   in the editor as they are written.
 
 ---
 
@@ -79,8 +98,8 @@ hint is shown.
 
 | Setting | Purpose |
 |---|---|
-| Base URL / API key | Ollama Cloud OpenAI-compatible endpoint + credentials |
-| Model per role | Mix models — e.g. a larger model for planning, a faster coder model for the build loop |
+| LLM Platforms | Add/enable multiple OpenAI-compatible platforms (Ollama Cloud, local Ollama, llama.cpp, generic) |
+| Platform + model per role | Mix platforms and models — e.g. Ollama Cloud for planning, a local llama.cpp coder for the build loop |
 | Max fix attempts | Bounds the Fixer retry loop before a phase is escalated to `needs attention` |
 | Poll interval | How often the Requirements Monitor re-checks for drift |
 | Auto-apply changes | Auto-merge change proposals vs. require manual approval |
@@ -114,15 +133,16 @@ app/
   db.py          DuckDB connection + schema (serialized via one lock)
   repo.py        Domain repository (projects, settings, phases, tasks, events…)
   secrets.py     Encrypt/mask API keys at rest
-  llm.py         Ollama Cloud OpenAI-compatible client + connection test
+  llm.py         OpenAI-compatible client + per-role endpoint resolution
   crew.py        CrewAI agent/crew factory (per-role LLM) with direct fallback
-  agents.py      Prompt construction + structured parsing per pipeline step
-  executor.py    Sandboxed file writes + guarded test execution
+  agents.py      Prompt construction + tolerant structured parsing per step
+  executor.py    Sandboxed writes, guarded test execution, nested file tree
   events.py      In-process pub/sub feeding SSE
   runner.py      Background phase-loop state machine + requirements monitor
-  templates/     Jinja2 (enterprise UI) + HTMX partials
+  templates/     Jinja2 VS Code-style shell + HTMX partials
+                 (tree, editor, providers, plan, monitor, proposals, …)
   static/app.css Corporate design system layered on Tailwind
-tests/           Unit + end-to-end build-loop tests
+tests/           Unit + end-to-end build-loop tests (21)
 docs/PRD.md      Product requirements & phased build plan
 ```
 
