@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app import repo, secrets
 from app.agents import _coerce_files, _fallback_plan, _fallback_structured
+from app.runner import _failure_detail, _has_source
 from app.executor import (command_allowed, list_tree, read_files, run_tests,
                           write_files)
 from app.llm import LLMConfig, extract_json, _v1_url
@@ -112,6 +113,30 @@ def test_extract_json_variants():
     assert extract_json('noise before {"a": 3} noise after') == {"a": 3}
     assert extract_json("[1, 2, 3]") == [1, 2, 3]
     assert extract_json("totally not json") is None
+    # Trailing commas (a very common model mistake) are tolerated.
+    assert extract_json('{"a": 1, "b": [1, 2,],}') == {"a": 1, "b": [1, 2]}
+    # Prose before + braces inside string content don't break balancing.
+    assert extract_json('Here you go:\n{"code": "if (x) { y }"}') == \
+        {"code": "if (x) { y }"}
+
+
+def test_coerce_files_alternate_shapes():
+    # {"files": [...]} with alternate key names
+    a = _coerce_files({"files": [{"filename": "a.py", "code": "x=1"}]})
+    assert a["files"] == [{"path": "a.py", "content": "x=1"}]
+    # bare {path: content} mapping
+    b = _coerce_files({"main.py": "print(1)", "notes": "done"})
+    assert {"path": "main.py", "content": "print(1)"} in b["files"]
+    assert b["notes"] == "done"
+    # {"files": {path: content}} mapping
+    c = _coerce_files({"files": {"app/x.py": "pass"}})
+    assert c["files"] == [{"path": "app/x.py", "content": "pass"}]
+    # single {path, content} object
+    d = _coerce_files({"path": "solo.py", "content": "1"})
+    assert d["files"] == [{"path": "solo.py", "content": "1"}]
+    # non-string content is serialised, not dropped
+    e = _coerce_files({"files": [{"path": "cfg.json", "content": {"k": 1}}]})
+    assert e["files"][0]["path"] == "cfg.json" and "k" in e["files"][0]["content"]
 
 
 def test_v1_url_normalisation():
@@ -134,6 +159,35 @@ def test_fallback_structured_and_plan():
     plan = _fallback_plan(structured)
     assert len(plan) >= 3
     assert all(p["test_plan"] for p in plan)
+
+
+def test_generate_code_reports_diagnostic(monkeypatch):
+    from app import agents, crew
+    from app.llm import LLMConfig
+    # Model returns prose instead of JSON — parse + repair both fail.
+    monkeypatch.setattr(crew, "run_role",
+                        lambda *a, **k: "Sure! I'll build that for you.")
+    cfg = LLMConfig("u", "k", {"coder": "m"})
+    out = agents.generate_code(cfg, "sum", {"name": "P"},
+                               {"title": "t", "file_paths": []}, {})
+    assert out["files"] == []
+    assert out.get("_diag") and "unparseable" in out["_diag"]
+
+
+def test_has_source_and_failure_detail(tmp_path):
+    from app.executor import write_files
+    target = str(tmp_path / "src")
+    assert not _has_source(target)
+    write_files(target, [{"path": "test_only.py", "content": "def test_x(): pass"}])
+    assert not _has_source(target)  # test files don't count as source
+    write_files(target, [{"path": "app.py", "content": "x = 1"}])
+    assert _has_source(target)
+
+    detail = _failure_detail(
+        "", "Traceback (most recent call last):\n"
+            "ModuleNotFoundError: No module named 'main'\n")
+    assert "ModuleNotFoundError" in detail or "No module named" in detail
+    assert _failure_detail("", "") == ""
 
 
 def test_coerce_files_filters_invalid():

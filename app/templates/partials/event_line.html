@@ -1,5 +1,6 @@
-{#- one activity log line; agent name drives the accent colour -#}
-<div class="log-line fade-in">
+{#- one activity log line; agent name drives accent, event_type adds emphasis -#}
+{% set et = ev.event_type or '' %}
+<div class="log-line fade-in{% if et in ['warn','error'] %} log-warn{% elif et == 'output' %} log-output{% endif %}">
   <span class="log-time">{{ ev.created_at[11:19] if ev.created_at and ev.created_at|length > 19 else '' }}</span>
   <span class="log-agent agent-{{ ev.agent_name.split(' ')[0] if ev.agent_name else 'System' }}">{{ ev.agent_name or 'System' }}</span>
   <span class="text-ink-700 break-words">{{ ev.message }}</span>

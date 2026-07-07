@@ -165,11 +165,11 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
             _emit(pid, "Coder", "files", f"Wrote: {', '.join(written)}",
                   phase_id=phase_id, payload={"files": written})
         else:
-            repo.set_task_status(task["id"], "blocked",
-                                 detail="No files produced (LLM unavailable?)")
+            reason = result.get("_diag") or "model returned no file entries"
+            repo.set_task_status(task["id"], "blocked", detail=reason[:200])
             _emit(pid, "Coder", "warn",
-                  f"No files produced for '{task['title']}'. "
-                  "Check Ollama settings.", phase_id=phase_id)
+                  f"No files produced for '{task['title']}' — {reason}",
+                  phase_id=phase_id, payload={"reason": reason})
 
     # 2. Test authoring
     repo.set_phase_status(phase_id, "test_writing")
@@ -180,6 +180,18 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
         written = executor.write_files(target, tests["files"])
         _emit(pid, "Test Writer", "files", f"Wrote tests: {', '.join(written)}",
               phase_id=phase_id, payload={"files": written})
+    else:
+        reason = tests.get("_diag") or "model returned no test files"
+        _emit(pid, "Test Writer", "warn", f"No tests produced — {reason}",
+              phase_id=phase_id, payload={"reason": reason})
+
+    # Guard: if the target folder still has no source files, testing is futile.
+    if not _has_source(target):
+        _emit(pid, "System", "warn",
+              "No source files were produced in this phase — the Coder agent "
+              "returned nothing usable. Verify the Ollama model and API key in "
+              "Settings, then Retry the phase.", phase_id=phase_id)
+        return False
 
     # 3. Test + fix loop
     max_attempts = int(settings.get("max_fix_attempts") or 3)
@@ -231,9 +243,17 @@ def _test_and_fix(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
             return True
         _emit(pid, "Validator", "test", f"✗ Tests failed: {rr.summary}",
               phase_id=phase_id, payload={"summary": rr.summary})
+        # Surface the actual failure detail so it isn't a black box.
+        detail = _failure_detail(rr.stdout, rr.stderr)
+        if detail:
+            _emit(pid, "Validator", "output", detail, phase_id=phase_id,
+                  payload={"stdout_tail": rr.stdout[-2000:],
+                           "stderr_tail": rr.stderr[-2000:]})
         if attempt >= max_attempts:
             _emit(pid, "Fixer", "warn",
-                  f"Exhausted {max_attempts} fix attempts.", phase_id=phase_id)
+                  f"Exhausted {max_attempts} fix attempts — see the failure "
+                  "output above. Phase marked needs-attention.",
+                  phase_id=phase_id)
             return False
         repo.set_phase_status(phase_id, "fixing")
         _emit(pid, "Fixer", "task", f"Attempting fix {attempt}/{max_attempts}…",
@@ -245,8 +265,9 @@ def _test_and_fix(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
             _emit(pid, "Fixer", "files", f"Patched: {', '.join(written)}",
                   phase_id=phase_id, payload={"files": written})
         else:
-            _emit(pid, "Fixer", "warn", "Fixer produced no patch.",
-                  phase_id=phase_id)
+            reason = fix.get("_diag") or "model returned no patch"
+            _emit(pid, "Fixer", "warn", f"Fixer produced no patch — {reason}",
+                  phase_id=phase_id, payload={"reason": reason})
     return False
 
 
@@ -325,6 +346,38 @@ def _project_summary(reqs: dict | None) -> str:
     if not reqs:
         return "Unnamed product."
     return (reqs.get("raw_text") or "")[:1200]
+
+
+_SOURCE_EXT = (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java",
+               ".rb", ".php", ".c", ".cpp", ".cs", ".html", ".css", ".sql")
+
+
+def _has_source(target: str) -> bool:
+    """True if the target folder contains any non-test source file."""
+    for path in executor.list_tree(target):
+        low = path.lower()
+        if low.endswith("/"):
+            continue
+        if "test" in low:
+            continue
+        if low.endswith(_SOURCE_EXT):
+            return True
+    return False
+
+
+def _failure_detail(stdout: str, stderr: str) -> str:
+    """Extract the most informative lines from a failed test run."""
+    text = (stderr or "").strip() or (stdout or "").strip()
+    if not text:
+        return ""
+    lines = [l for l in text.splitlines() if l.strip()]
+    # Prefer lines that name the actual error.
+    key = [l for l in lines if any(m in l for m in (
+        "Error", "error:", "assert", "Assertion", "Traceback", "FAILED",
+        "ModuleNotFound", "ImportError", "SyntaxError", "No module named",
+        "collected", "cannot import"))]
+    picked = (key or lines)[-6:]
+    return " · ".join(l.strip()[:160] for l in picked)
 
 
 def _emit(pid: int, agent: str, event_type: str, message: str,

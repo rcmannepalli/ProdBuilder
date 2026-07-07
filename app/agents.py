@@ -30,7 +30,7 @@ def parse_requirements(cfg: LLMConfig, raw: str) -> dict:
         "\"acceptance_criteria\" (array of strings), "
         "\"tech_notes\" (array of strings).\n\nREQUIREMENTS:\n" + raw
     )
-    out = _safe_json(cfg, "planner", _JSON_SYS, user)
+    out, _diag = _safe_json(cfg, "planner", _JSON_SYS, user)
     if isinstance(out, dict) and out.get("features"):
         return out
     return _fallback_structured(raw)
@@ -53,7 +53,7 @@ def generate_plan(cfg: LLMConfig, structured: dict, raw: str) -> list[dict]:
         "tasks list concrete file paths relative to the project root.\n\n"
         f"SPEC:\n{structured}\n\nRAW REQUIREMENTS:\n{raw}"
     )
-    out = _safe_json(cfg, "planner", _JSON_SYS, user)
+    out, _diag = _safe_json(cfg, "planner", _JSON_SYS, user)
     phases = out.get("phases") if isinstance(out, dict) else None
     if isinstance(phases, list) and phases:
         return [_normalize_phase(p) for p in phases]
@@ -67,7 +67,7 @@ def diff_requirements(cfg: LLMConfig, old_raw: str, new_raw: str) -> dict:
         "\"impact\": \"additive\"|\"modifying\"|\"breaking\"}.\n\n"
         f"OLD:\n{old_raw}\n\nNEW:\n{new_raw}"
     )
-    out = _safe_json(cfg, "monitor", _JSON_SYS, user)
+    out, _diag = _safe_json(cfg, "monitor", _JSON_SYS, user)
     if isinstance(out, dict) and "has_changes" in out:
         return out
     changed = old_raw.strip() != new_raw.strip()
@@ -95,8 +95,11 @@ def generate_code(cfg: LLMConfig, project_summary: str, phase: dict,
         f"TASK: {task.get('title')} (files: {task.get('file_paths')})\n\n"
         f"EXISTING FILES:\n{ctx}"
     )
-    out = _safe_json(cfg, "coder", _JSON_SYS, user)
-    return _coerce_files(out)
+    out, diag = _safe_json(cfg, "coder", _JSON_SYS, user)
+    result = _coerce_files(out)
+    if not result["files"]:
+        result["_diag"] = diag or "model returned no file entries"
+    return result
 
 
 def generate_tests(cfg: LLMConfig, project_summary: str, phase: dict,
@@ -113,8 +116,11 @@ def generate_tests(cfg: LLMConfig, project_summary: str, phase: dict,
         f"TEST PLAN: {test_plan}\n\n"
         f"EXISTING FILES:\n{ctx}"
     )
-    out = _safe_json(cfg, "tester", _JSON_SYS, user)
-    return _coerce_files(out)
+    out, diag = _safe_json(cfg, "tester", _JSON_SYS, user)
+    result = _coerce_files(out)
+    if not result["files"]:
+        result["_diag"] = diag or "model returned no test files"
+    return result
 
 
 def fix_failure(cfg: LLMConfig, project_summary: str, phase: dict,
@@ -128,8 +134,11 @@ def fix_failure(cfg: LLMConfig, project_summary: str, phase: dict,
         f"TEST STDOUT:\n{stdout[-4000:]}\n\nTEST STDERR:\n{stderr[-4000:]}\n\n"
         f"CURRENT FILES:\n{ctx}"
     )
-    out = _safe_json(cfg, "fixer", _JSON_SYS, user)
-    return _coerce_files(out)
+    out, diag = _safe_json(cfg, "fixer", _JSON_SYS, user)
+    result = _coerce_files(out)
+    if not result["files"]:
+        result["_diag"] = diag or "model returned no patch"
+    return result
 
 
 def review_phase(cfg: LLMConfig, phase: dict, acceptance: list[str],
@@ -143,7 +152,7 @@ def review_phase(cfg: LLMConfig, phase: dict, acceptance: list[str],
         f"TEST PLAN: {phase.get('test_plan')}\n\n"
         f"DELIVERED FILES:\n{ctx}"
     )
-    out = _safe_json(cfg, "reviewer", _JSON_SYS, user)
+    out, _diag = _safe_json(cfg, "reviewer", _JSON_SYS, user)
     if isinstance(out, dict) and "approved" in out:
         return out
     return {"approved": True, "notes": "Auto-approved (reviewer unavailable).",
@@ -154,12 +163,36 @@ def review_phase(cfg: LLMConfig, phase: dict, acceptance: list[str],
 # Internals
 # ---------------------------------------------------------------------------
 
-def _safe_json(cfg: LLMConfig, role: str, system: str, user: str) -> Any:
+def _safe_json(cfg: LLMConfig, role: str, system: str,
+               user: str) -> tuple[Any, str]:
+    """Call a role and parse JSON. Returns (parsed_or_None, diagnostic).
+
+    On unparseable output, makes one repair attempt asking the model to convert
+    its own response into strict JSON before giving up.
+    """
     try:
         raw = crew.run_role(cfg, role, system, user, json_mode=True)
+    except Exception as e:  # noqa: BLE001
+        return None, f"LLM call failed: {type(e).__name__}: {e}"
+    parsed = extract_json(raw)
+    if parsed is not None:
+        return parsed, ""
+    try:
+        fixed = crew.run_role(
+            cfg, role,
+            "You convert text into STRICT, valid JSON. Output ONLY the JSON.",
+            "Convert the following into valid JSON with the requested schema. "
+            "Output ONLY the JSON, no prose:\n\n" + (raw or "")[:6000],
+            json_mode=True)
+        parsed = extract_json(fixed)
+        if parsed is not None:
+            return parsed, ""
     except Exception:  # noqa: BLE001
-        return None
-    return extract_json(raw)
+        pass
+    snippet = (raw or "").strip().replace("\n", " ")[:180]
+    if not snippet:
+        return None, "model returned an empty response"
+    return None, f"unparseable model output (starts: {snippet!r})"
 
 
 def _files_context(files: dict[str, str], max_chars: int = 8000) -> str:
@@ -177,20 +210,79 @@ def _files_context(files: dict[str, str], max_chars: int = 8000) -> str:
     return "\n".join(parts)
 
 
+_PATH_KEYS = ("path", "filepath", "file_path", "filename", "file", "name")
+_CONTENT_KEYS = ("content", "code", "text", "body", "source", "contents")
+
+
 def _coerce_files(out: Any) -> dict:
-    files = []
+    """Normalise the many shapes models use for "a set of files" into
+    [{path, content}]. Handles: {"files":[...]}, a bare list, a
+    {path: content} mapping, {"files": {path: content}}, and per-file dicts
+    keyed by filename/code/etc."""
+    notes = ""
+    raw_files: Any = None
     if isinstance(out, dict):
-        raw_files = out.get("files") or []
-        notes = out.get("notes", "")
+        notes = str(out.get("notes") or out.get("summary") or "")
+        if "files" in out:
+            raw_files = out["files"]
+        elif _looks_like_path_map(out):
+            raw_files = out  # bare {path: content} mapping
+        else:
+            # Maybe a single {path, content} object.
+            single = _one_file(out)
+            raw_files = [single] if single else []
     elif isinstance(out, list):
-        raw_files, notes = out, ""
+        raw_files = out
     else:
-        return {"files": [], "notes": "No parseable output from model."}
-    for f in raw_files:
-        if isinstance(f, dict) and f.get("path") and "content" in f:
-            files.append({"path": str(f["path"]).lstrip("/"),
-                          "content": str(f["content"])})
+        return {"files": [], "notes": ""}
+
+    files: list[dict] = []
+    if isinstance(raw_files, dict):
+        for path, content in raw_files.items():
+            files.append({"path": _clean_path(path),
+                          "content": _as_text(content)})
+    elif isinstance(raw_files, list):
+        for f in raw_files:
+            single = _one_file(f)
+            if single:
+                files.append(single)
+    files = [f for f in files if f["path"]]
     return {"files": files, "notes": notes}
+
+
+def _one_file(f: Any) -> dict | None:
+    if not isinstance(f, dict):
+        return None
+    path = next((f[k] for k in _PATH_KEYS if f.get(k)), None)
+    content = next((f[k] for k in _CONTENT_KEYS if k in f), None)
+    if path is None or content is None:
+        return None
+    return {"path": _clean_path(path), "content": _as_text(content)}
+
+
+def _looks_like_path_map(d: dict) -> bool:
+    if not d:
+        return False
+    keyish = [k for k in d if k not in ("notes", "summary")]
+    if not keyish:
+        return False
+    return all(("." in str(k) or "/" in str(k)) and
+               isinstance(d[k], (str, int, float)) for k in keyish)
+
+
+def _clean_path(p: Any) -> str:
+    return str(p).strip().lstrip("/")
+
+
+def _as_text(c: Any) -> str:
+    if isinstance(c, str):
+        return c
+    if isinstance(c, (list, dict)):
+        try:
+            return __import__("json").dumps(c, indent=2)
+        except Exception:  # noqa: BLE001
+            return str(c)
+    return str(c)
 
 
 def _normalize_phase(p: dict) -> dict:

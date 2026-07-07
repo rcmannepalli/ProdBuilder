@@ -80,33 +80,65 @@ class OllamaClient:
 
 
 def extract_json(text: str) -> Any:
-    """Best-effort extraction of a JSON object/array from an LLM response."""
+    """Best-effort extraction of a JSON object/array from an LLM response.
+
+    Tolerates markdown fences, surrounding prose, and trailing commas — the
+    common ways models deviate from strict JSON.
+    """
     if text is None:
         return None
     text = text.strip()
-    # Strip markdown fences.
-    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    # Strip markdown fences (```json ... ``` or bare ``` ... ```).
+    fence = re.search(r"```(?:json|javascript|js)?\s*(.*?)```", text, re.DOTALL)
     if fence:
         text = fence.group(1).strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    # Find the first balanced { } or [ ].
+    for candidate in _json_candidates(text):
+        obj = _try_load(candidate)
+        if obj is not None:
+            return obj
+    return None
+
+
+def _json_candidates(text: str):
+    """Yield progressively more aggressive candidate substrings to parse."""
+    yield text
+    # Largest balanced object/array starting at the first opener.
     for opener, closer in (("{", "}"), ("[", "]")):
         start = text.find(opener)
         if start == -1:
             continue
         depth = 0
+        in_str = False
+        esc = False
         for i in range(start, len(text)):
-            if text[i] == opener:
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == opener:
                 depth += 1
-            elif text[i] == closer:
+            elif ch == closer:
                 depth -= 1
                 if depth == 0:
-                    chunk = text[start:i + 1]
-                    try:
-                        return json.loads(chunk)
-                    except Exception:
-                        break
-    return None
+                    yield text[start:i + 1]
+                    break
+
+
+def _try_load(candidate: str) -> Any:
+    try:
+        return json.loads(candidate)
+    except Exception:
+        pass
+    # Remove trailing commas before } or ] and retry.
+    repaired = re.sub(r",\s*([}\]])", r"\1", candidate)
+    try:
+        return json.loads(repaired)
+    except Exception:
+        return None

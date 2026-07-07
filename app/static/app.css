@@ -35,6 +35,10 @@ html, body { height: 100%; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px;
   line-height:1.55; align-items:baseline; }
 .log-line:hover { background:#f8fafc; }
+.log-warn { background:#fffbeb; border-left:2px solid #f59e0b; }
+.log-warn:hover { background:#fef3c7; }
+.log-output { background:#f8fafc; border-left:2px solid #64748b; color:#475569; }
+.log-output .text-ink-700 { color:#475569; white-space:pre-wrap; }
 .log-agent { font-weight:700; min-width:78px; }
 .log-time { color:#94a3b8; font-size:10px; min-width:60px; }
 
