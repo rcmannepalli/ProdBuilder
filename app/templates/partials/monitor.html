@@ -1,0 +1,6 @@
+{% if not events %}
+<div class="text-ink-400 text-[12px] px-3 py-2 italic">No activity yet. Start a build to see live agent output.</div>
+{% endif %}
+{% for ev in events %}
+  {% include "partials/event_line.html" %}
+{% endfor %}

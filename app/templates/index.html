@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="h-full flex flex-col" x-data="{ newProject: false, tab: 'activity' }">
+
+  <!-- ═══════════════ Top navigation bar ═══════════════ -->
+  <header class="bg-ink-900 text-white flex items-center h-12 px-4 gap-4 shrink-0 shadow-sm">
+    <div class="flex items-center gap-2.5">
+      <div class="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center font-bold text-white text-sm">P</div>
+      <div class="leading-tight">
+        <div class="font-semibold text-[13px] tracking-tight">{{ APP_NAME }}</div>
+        <div class="text-[9px] uppercase tracking-widest text-ink-400">{{ APP_TAGLINE }}</div>
+      </div>
+    </div>
+
+    <div class="h-5 w-px bg-ink-700"></div>
+
+    <!-- Project selector -->
+    <div class="flex items-center gap-2">
+      {% if projects %}
+      <select class="bg-ink-800 border border-ink-700 rounded-md text-[12.5px] px-2 py-1 text-white focus:outline-none focus:border-brand-500"
+              onchange="window.location='/?p='+this.value">
+        {% for p in projects %}
+        <option value="{{ p.id }}" {% if project and p.id == project.id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <button class="text-[12px] font-medium text-ink-300 hover:text-white flex items-center gap-1"
+              @click="newProject = true">
+        <span class="text-base leading-none">+</span> New Project
+      </button>
+    </div>
+
+    <div class="flex-1"></div>
+
+    {% if project %}
+    <div class="text-[11px] text-ink-400 font-mono truncate max-w-[280px]" title="{{ project.target_folder }}">
+      📁 {{ project.target_folder }}
+    </div>
+    <!-- Build controls (HTMX-swapped) -->
+    <div id="controls">
+      {% include "partials/controls.html" %}
+    </div>
+    {% endif %}
+  </header>
+
+  {% if not project %}
+  <!-- ═══════════════ Empty state ═══════════════ -->
+  <div class="flex-1 flex items-center justify-center">
+    <div class="text-center max-w-md">
+      <div class="w-14 h-14 rounded-xl bg-brand-600 mx-auto flex items-center justify-center text-white text-2xl font-bold mb-4">P</div>
+      <h1 class="text-lg font-semibold text-ink-900">Welcome to {{ APP_NAME }}</h1>
+      <p class="text-ink-500 mt-1.5 text-[13px] leading-relaxed">
+        Autonomous product engineering powered by CrewAI agents and Ollama Cloud.
+        Create a project to describe requirements, generate a phased build plan,
+        and let the agents build, test, and validate each module.
+      </p>
+      <button class="btn btn-primary mt-4 mx-auto" @click="newProject = true">Create your first project</button>
+    </div>
+  </div>
+  {% else %}
+
+  <!-- ═══════════════ Main workspace: 3 columns ═══════════════ -->
+  <main class="flex-1 grid grid-cols-[320px_minmax(0,1fr)_400px] min-h-0">
+
+    <!-- ── Left rail: Requirements + Settings ── -->
+    {% include "partials/left_rail.html" %}
+
+    <!-- ── Center: Build plan ── -->
+    <section class="min-h-0 flex flex-col border-r border-ink-200 bg-ink-50">
+      <div class="flex items-center justify-between px-4 h-10 border-b border-ink-200 bg-white shrink-0">
+        <span class="panel-title">Build Plan</span>
+        <div class="flex items-center gap-2">
+          <button class="btn btn-ghost !py-1 !px-2.5"
+                  hx-post="/projects/{{ project.id }}/plan"
+                  hx-target="#plan-region" hx-swap="innerHTML"
+                  hx-indicator="#plan-spin">
+            <svg id="plan-spin" class="htmx-indicator w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="#94a3b8" stroke-width="3" stroke-dasharray="42"/></svg>
+            Regenerate Plan
+          </button>
+        </div>
+      </div>
+      <div id="plan-region" class="flex-1 overflow-y-auto p-4">
+        {% include "partials/plan.html" %}
+      </div>
+    </section>
+
+    <!-- ── Right rail: Monitor ── -->
+    <section class="min-h-0 flex flex-col bg-white">
+      <div class="flex items-center gap-1 px-3 h-10 border-b border-ink-200 shrink-0">
+        <span class="tab" :class="tab==='activity' && 'tab-active'" @click="tab='activity'">Activity</span>
+        <span class="tab" :class="tab==='proposals' && 'tab-active'" @click="tab='proposals'"
+              hx-get="/projects/{{ project.id }}/proposals" hx-target="#proposals-region" hx-trigger="click">
+          Proposals
+          {% if proposals %}<span class="ml-1 badge st-needs_attention !py-0">{{ proposals|length }}</span>{% endif %}
+        </span>
+        <span class="tab" :class="tab==='files' && 'tab-active'" @click="tab='files'"
+              hx-get="/projects/{{ project.id }}/files" hx-target="#files-region" hx-trigger="click">Files</span>
+      </div>
+
+      <!-- Activity (SSE-driven) -->
+      <div x-show="tab==='activity'" class="flex-1 min-h-0 flex flex-col">
+        <div id="activity-log"
+             class="flex-1 overflow-y-auto py-1.5 px-1 bg-ink-50"
+             hx-ext="sse" sse-connect="/projects/{{ project.id }}/events"
+             sse-swap="message" hx-swap="beforeend"
+             x-init="$el.scrollTop = $el.scrollHeight">
+          {% include "partials/monitor.html" %}
+        </div>
+        <div class="border-t border-ink-200 px-3 py-1.5 text-[10px] text-ink-400 flex items-center gap-2 bg-white">
+          <span class="badge-dot bg-emerald-500 pulse"></span> Live monitor · auto-scroll
+        </div>
+      </div>
+
+      <!-- Proposals -->
+      <div x-show="tab==='proposals'" class="flex-1 min-h-0 overflow-y-auto p-3" id="proposals-region">
+        {% include "partials/proposals.html" %}
+      </div>
+
+      <!-- Files -->
+      <div x-show="tab==='files'" class="flex-1 min-h-0 overflow-hidden" id="files-region">
+        <div class="p-3 text-ink-400 text-[12px]">Select the Files tab to load the target folder tree.</div>
+      </div>
+    </section>
+  </main>
+  {% endif %}
+
+  <!-- ═══════════════ New project modal ═══════════════ -->
+  <div x-show="newProject" x-cloak class="fixed inset-0 z-50 flex items-center justify-center"
+       style="display:none;">
+    <div class="absolute inset-0 bg-ink-950/50" @click="newProject=false"></div>
+    <div class="relative card w-[440px] p-5 shadow-2xl fade-in">
+      <h2 class="font-semibold text-ink-900 text-[15px]">New Project</h2>
+      <p class="text-ink-500 text-[12px] mt-0.5">Point ProdBuilder at a target folder and describe what to build.</p>
+      <form hx-post="/projects" hx-swap="none" class="mt-4 space-y-3">
+        <div>
+          <label class="label">Project name</label>
+          <input name="name" required class="field" placeholder="Acme Analytics API" />
+        </div>
+        <div>
+          <label class="label">Target folder (absolute path)</label>
+          <input name="target_folder" required class="field font-mono"
+                 placeholder="/home/user/projects/acme-api" />
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" class="btn btn-ghost" @click="newProject=false">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Keep the activity log pinned to the bottom as SSE events stream in.
+  document.body.addEventListener('htmx:sseMessage', function () {
+    const log = document.getElementById('activity-log');
+    if (log) requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+  });
+  // Poll the control pill so the UI reflects background build state changes.
+  {% if project %}
+  setInterval(function () {
+    htmx.ajax('GET', '/projects/{{ project.id }}/status', {target:'#controls', swap:'innerHTML'});
+  }, 4000);
+  {% endif %}
+</script>
+<style>[x-cloak]{display:none!important;}</style>
+{% endblock %}

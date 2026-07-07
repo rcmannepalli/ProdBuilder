@@ -1,0 +1,88 @@
+/* ProdBuilder — enterprise refinements layered on top of Tailwind utilities. */
+
+@import url('https://rsms.me/inter/inter.css');
+
+:root { color-scheme: light; }
+
+html, body { height: 100%; }
+
+/* Dense, corporate scrollbars */
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Status badges */
+.badge { display:inline-flex; align-items:center; gap:.3rem; padding:.06rem .45rem;
+  border-radius:.375rem; font-size:11px; font-weight:600; line-height:1.4;
+  border:1px solid transparent; white-space:nowrap; }
+.badge-dot { width:6px; height:6px; border-radius:9999px; }
+
+.st-pending  { background:#f1f5f9; color:#475569; border-color:#e2e8f0; }
+.st-building, .st-testing, .st-test_writing, .st-fixing, .st-review,
+.st-running  { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+.st-done, .st-passed { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+.st-needs_attention, .st-failed, .st-blocked, .st-error {
+  background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+.st-paused, .st-idle { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+
+/* Pulsing dot for active states */
+.pulse { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+/* Activity log */
+.log-line { display:flex; gap:.5rem; padding:.2rem .5rem; border-radius:.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px;
+  line-height:1.55; align-items:baseline; }
+.log-line:hover { background:#f8fafc; }
+.log-agent { font-weight:700; min-width:78px; }
+.log-time { color:#94a3b8; font-size:10px; min-width:60px; }
+
+.agent-Coder      { color:#4f46e5; }
+.agent-Architect  { color:#0f766e; }
+.agent-Test       { color:#a16207; }
+.agent-Validator  { color:#0369a1; }
+.agent-Fixer      { color:#be123c; }
+.agent-Reviewer   { color:#7c3aed; }
+.agent-Monitor    { color:#0891b2; }
+.agent-System     { color:#475569; }
+
+/* Panel headers */
+.panel-title { font-size:11px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:#64748b; }
+
+/* Card */
+.card { background:#fff; border:1px solid #e2e8f0; border-radius:.6rem; }
+
+/* Inputs */
+.field { width:100%; border:1px solid #cbd5e1; border-radius:.45rem;
+  padding:.35rem .55rem; font-size:12.5px; background:#fff; color:#0f172a; }
+.field:focus { outline:none; border-color:#6366f1; box-shadow:0 0 0 3px #e0e7ff; }
+.label { font-size:11px; font-weight:600; color:#475569; margin-bottom:.15rem;
+  display:block; }
+
+/* Buttons */
+.btn { display:inline-flex; align-items:center; gap:.35rem; font-weight:600;
+  font-size:12px; padding:.4rem .7rem; border-radius:.45rem; border:1px solid transparent;
+  cursor:pointer; transition:all .12s ease; }
+.btn-primary { background:#4f46e5; color:#fff; }
+.btn-primary:hover { background:#4338ca; }
+.btn-ghost { background:#fff; color:#334155; border-color:#cbd5e1; }
+.btn-ghost:hover { background:#f8fafc; }
+.btn-danger { background:#fff; color:#b91c1c; border-color:#fecaca; }
+.btn-danger:hover { background:#fef2f2; }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+
+/* Tabs */
+.tab { padding:.35rem .6rem; font-size:12px; font-weight:600; color:#64748b;
+  border-bottom:2px solid transparent; cursor:pointer; }
+.tab-active { color:#4f46e5; border-bottom-color:#4f46e5; }
+
+/* Tree */
+.tree-item { padding:.12rem .4rem; border-radius:.3rem; font-size:12px;
+  font-family: ui-monospace, monospace; cursor:pointer; color:#334155; }
+.tree-item:hover { background:#f1f5f9; }
+.tree-item.sel { background:#eef2ff; color:#4338ca; font-weight:600; }
+
+.fade-in { animation: fadein .25s ease; }
+@keyframes fadein { from{opacity:0; transform:translateY(2px)} to{opacity:1} }

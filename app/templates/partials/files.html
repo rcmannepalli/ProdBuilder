@@ -1,0 +1,31 @@
+<div class="h-full grid grid-cols-[160px_minmax(0,1fr)]">
+  <!-- Tree -->
+  <div class="border-r border-ink-200 overflow-y-auto p-2 bg-ink-50">
+    <div class="panel-title mb-1.5 px-1">Target Folder</div>
+    {% if not tree %}
+    <div class="text-[11px] text-ink-400 px-1">Folder is empty. Files appear here as agents build.</div>
+    {% endif %}
+    {% for item in tree %}
+      {% if not item.endswith('/') %}
+      <div class="tree-item {% if item == selected %}sel{% endif %} truncate"
+           hx-get="/projects/{{ project_id }}/files?path={{ item|urlencode }}"
+           hx-target="#files-region" hx-swap="innerHTML" title="{{ item }}">
+        {{ item }}
+      </div>
+      {% else %}
+      <div class="tree-item text-ink-400 truncate">{{ item }}</div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  <!-- Content -->
+  <div class="overflow-auto">
+    {% if selected %}
+    <div class="sticky top-0 bg-white border-b border-ink-200 px-3 py-1.5 text-[11px] font-mono text-ink-600 flex items-center gap-2">
+      <span class="badge st-done !py-0">file</span>{{ selected }}
+    </div>
+    <pre class="text-[11.5px] leading-relaxed p-3 font-mono text-ink-800 whitespace-pre-wrap break-words">{{ content }}</pre>
+    {% else %}
+    <div class="h-full flex items-center justify-center text-ink-400 text-[12px]">Select a file to view its contents.</div>
+    {% endif %}
+  </div>
+</div>

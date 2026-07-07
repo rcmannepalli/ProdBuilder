@@ -1,0 +1,30 @@
+{#- build control cluster in the top bar; run_status in {stopped,running,paused} -#}
+<div class="flex items-center gap-2">
+  {% set proj_status = project.status %}
+  <span class="badge st-{{ proj_status }}">
+    <span class="badge-dot {% if run_status == 'running' %}bg-blue-500 pulse{% elif run_status == 'paused' %}bg-amber-500{% elif proj_status == 'done' %}bg-emerald-500{% elif proj_status == 'needs_attention' %}bg-rose-500{% else %}bg-ink-400{% endif %}"></span>
+    {{ proj_status|replace('_',' ')|title }}
+  </span>
+
+  {% if run_status == 'stopped' %}
+  <button class="btn btn-primary !py-1"
+          hx-post="/projects/{{ project.id }}/build/start"
+          hx-target="#controls" hx-swap="innerHTML">
+    ▶ Start Build
+  </button>
+  {% elif run_status == 'running' %}
+  <button class="btn btn-ghost !py-1"
+          hx-post="/projects/{{ project.id }}/build/pause"
+          hx-target="#controls" hx-swap="innerHTML">❚❚ Pause</button>
+  <button class="btn btn-danger !py-1"
+          hx-post="/projects/{{ project.id }}/build/stop"
+          hx-target="#controls" hx-swap="innerHTML">■ Stop</button>
+  {% elif run_status == 'paused' %}
+  <button class="btn btn-primary !py-1"
+          hx-post="/projects/{{ project.id }}/build/resume"
+          hx-target="#controls" hx-swap="innerHTML">▶ Resume</button>
+  <button class="btn btn-danger !py-1"
+          hx-post="/projects/{{ project.id }}/build/stop"
+          hx-target="#controls" hx-swap="innerHTML">■ Stop</button>
+  {% endif %}
+</div>

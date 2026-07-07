@@ -1,0 +1,80 @@
+{% if not phases %}
+<div class="h-full flex items-center justify-center text-center">
+  <div class="max-w-xs">
+    <div class="text-3xl mb-2">🗂️</div>
+    <p class="text-ink-600 font-medium text-[13px]">No build plan yet</p>
+    <p class="text-ink-400 text-[12px] mt-1">Write your requirements, then click
+      <span class="font-semibold text-ink-600">Regenerate Plan</span> to have the
+      Architect agent produce phases, deliverables, and test plans.</p>
+  </div>
+</div>
+{% else %}
+<div class="space-y-2.5">
+  {% for phase in phases %}
+  <div class="card overflow-hidden" x-data="{ open: {{ 'true' if phase.status not in ['done'] else 'false' }} }">
+    <!-- Phase header -->
+    <div class="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-ink-50" @click="open = !open">
+      <span class="text-ink-400 text-[10px] transition-transform" :class="open && 'rotate-90'">▶</span>
+      <span class="text-[10px] font-mono text-ink-400 w-5">{{ phase.order_no }}</span>
+      <span class="font-semibold text-ink-800 text-[13px] flex-1 truncate">{{ phase.name }}</span>
+      <span class="badge st-{{ phase.status }}">
+        <span class="badge-dot {% if phase.status in ['building','testing','test_writing','fixing','review'] %}bg-blue-500 pulse{% elif phase.status == 'done' %}bg-emerald-500{% elif phase.status == 'needs_attention' %}bg-rose-500{% else %}bg-ink-400{% endif %}"></span>
+        {{ phase.status|replace('_',' ') }}
+      </span>
+      {% if phase.status in ['needs_attention','done'] %}
+      <button class="btn btn-ghost !py-0.5 !px-1.5 !text-[10px]" @click.stop=""
+              hx-post="/projects/{{ project.id }}/phases/{{ phase.id }}/retry"
+              hx-target="#plan-region" hx-swap="innerHTML">↻ Retry</button>
+      {% endif %}
+    </div>
+
+    <!-- Phase body -->
+    <div x-show="open" class="px-3 pb-3 pt-0.5 border-t border-ink-100">
+      {% if phase.description %}
+      <p class="text-[12px] text-ink-500 mt-2 leading-relaxed">{{ phase.description }}</p>
+      {% endif %}
+
+      <!-- Tasks -->
+      {% if phase.tasks %}
+      <div class="mt-2.5">
+        <div class="panel-title mb-1">Tasks</div>
+        <div class="space-y-1">
+          {% for task in phase.tasks %}
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="badge-dot {% if task.status == 'done' %}bg-emerald-500{% elif task.status == 'running' %}bg-blue-500 pulse{% elif task.status == 'blocked' %}bg-rose-500{% else %}bg-ink-300{% endif %}"></span>
+            <span class="text-ink-600 flex-1 truncate">{{ task.title }}</span>
+            <span class="text-[10px] font-mono px-1 rounded {% if task.kind == 'test' %}text-amber-700 bg-amber-50{% else %}text-brand-700 bg-brand-50{% endif %}">{{ task.kind }}</span>
+            {% if task.detail %}<span class="text-[10px] text-ink-400 truncate max-w-[120px]">{{ task.detail }}</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="grid grid-cols-2 gap-3 mt-2.5">
+        {% if phase.deliverables %}
+        <div>
+          <div class="panel-title mb-1">Deliverables</div>
+          <ul class="space-y-0.5">
+            {% for d in phase.deliverables %}
+            <li class="text-[11.5px] text-ink-600 flex gap-1.5"><span class="text-ink-300">•</span><span>{{ d }}</span></li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if phase.test_plan %}
+        <div>
+          <div class="panel-title mb-1">Test Plan</div>
+          <ul class="space-y-0.5">
+            {% for t in phase.test_plan %}
+            <li class="text-[11.5px] text-ink-600 flex gap-1.5"><span class="text-emerald-500">✓</span><span>{{ t }}</span></li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

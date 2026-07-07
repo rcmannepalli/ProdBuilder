@@ -1,0 +1,40 @@
+{% set pid = project_id if project_id is defined else project.id %}
+{% if not proposals %}
+<div class="text-center py-8">
+  <div class="text-2xl mb-1.5">✅</div>
+  <p class="text-ink-500 text-[12px]">No pending change proposals.</p>
+  <p class="text-ink-400 text-[11px] mt-1">The Requirements Monitor raises proposals
+    here when it detects that requirements have changed mid-build.</p>
+</div>
+{% else %}
+<div class="space-y-2">
+  {% for cp in proposals %}
+  <div class="card p-3 fade-in">
+    <div class="flex items-start gap-2">
+      <span class="badge st-{{ 'building' if cp.diff.impact == 'additive' else 'needs_attention' if cp.diff.impact == 'breaking' else 'paused' }} shrink-0">
+        {{ cp.diff.impact or 'change' }}
+      </span>
+      <div class="flex-1 min-w-0">
+        <p class="text-[12.5px] font-medium text-ink-800">{{ cp.summary }}</p>
+        {% if cp.diff.changes %}
+        <ul class="mt-1.5 space-y-0.5">
+          {% for c in cp.diff.changes %}
+          <li class="text-[11.5px] text-ink-600 flex gap-1.5"><span class="text-ink-300">↳</span><span>{{ c }}</span></li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="text-[10px] text-ink-400 mt-1.5 font-mono">#{{ cp.id }} · {{ cp.source }} · {{ cp.created_at[:19]|replace('T',' ') }}</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mt-2.5">
+      <button class="btn btn-primary !py-1 flex-1 justify-center"
+              hx-post="/projects/{{ pid }}/proposals/{{ cp.id }}/approve"
+              hx-target="#proposals-region" hx-swap="innerHTML">Approve &amp; Apply</button>
+      <button class="btn btn-ghost !py-1"
+              hx-post="/projects/{{ pid }}/proposals/{{ cp.id }}/reject"
+              hx-target="#proposals-region" hx-swap="innerHTML">Reject</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

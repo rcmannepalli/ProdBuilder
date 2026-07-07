@@ -1,0 +1,102 @@
+<aside class="min-h-0 flex flex-col border-r border-ink-200 bg-white"
+       x-data="{ section: 'requirements' }">
+  <!-- Section switch -->
+  <div class="flex items-center border-b border-ink-200 shrink-0">
+    <button class="tab flex-1 text-center" :class="section==='requirements' && 'tab-active'"
+            @click="section='requirements'">Requirements</button>
+    <button class="tab flex-1 text-center" :class="section==='settings' && 'tab-active'"
+            @click="section='settings'">Settings</button>
+  </div>
+
+  <!-- ── Requirements ── -->
+  <div x-show="section==='requirements'" class="flex-1 min-h-0 flex flex-col p-3">
+    <form class="flex-1 flex flex-col min-h-0"
+          hx-post="/projects/{{ project.id }}/requirements"
+          hx-target="#req-saved" hx-swap="innerHTML"
+          hx-trigger="input changed delay:1200ms from:textarea, submit">
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="panel-title">Product Requirements</span>
+        <span id="req-saved" class="text-[10px] text-ink-400"></span>
+      </div>
+      <textarea name="requirements" spellcheck="false"
+                class="field font-mono flex-1 min-h-0 resize-none leading-relaxed !text-[12px]"
+                placeholder="Describe the product to build. e.g.&#10;&#10;Build a REST API for a task manager with:&#10;- CRUD endpoints for tasks&#10;- SQLite storage&#10;- JWT auth&#10;- OpenAPI docs">{{ requirements.raw_text if requirements else '' }}</textarea>
+      <div class="mt-2 flex items-center justify-between">
+        <span class="text-[10px] text-ink-400">
+          {% if requirements %}v{{ requirements.version_no }} · autosaves{% else %}Not saved yet{% endif %}
+        </span>
+        <button class="btn btn-ghost !py-1 !px-2.5" type="submit">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── Settings ── -->
+  <div x-show="section==='settings'" x-cloak class="flex-1 min-h-0 overflow-y-auto p-3">
+    <form hx-post="/projects/{{ project.id }}/settings"
+          hx-target="#set-saved" hx-swap="innerHTML" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <span class="panel-title">Ollama Cloud</span>
+        <span id="set-saved" class="text-[10px] text-ink-400"></span>
+      </div>
+      <div>
+        <label class="label">Base URL</label>
+        <input name="ollama_base_url" class="field font-mono !text-[11.5px]"
+               value="{{ settings.ollama_base_url }}" placeholder="https://ollama.com" />
+      </div>
+      <div>
+        <label class="label">API Key {% if settings.api_key_masked %}<span class="text-ink-400 font-normal">(saved: {{ settings.api_key_masked }})</span>{% endif %}</label>
+        <input name="api_key" type="password" class="field font-mono !text-[11.5px]"
+               placeholder="{{ 'Leave blank to keep existing' if settings.api_key else 'sk-...' }}" />
+      </div>
+
+      <div>
+        <span class="panel-title">Model per Role</span>
+        <div class="mt-1.5 grid grid-cols-1 gap-1.5">
+          {% for role in roles %}
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-ink-500 w-16 capitalize shrink-0">{{ role }}</span>
+            <input name="model_{{ role }}" class="field font-mono !text-[11px] !py-1"
+                   value="{{ settings.model_map.get(role, default_model_map[role]) }}" />
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="label">Max fix attempts</label>
+          <input name="max_fix_attempts" type="number" min="1" max="10" class="field !py-1"
+                 value="{{ settings.max_fix_attempts }}" />
+        </div>
+        <div>
+          <label class="label">Poll interval (s)</label>
+          <input name="poll_interval_sec" type="number" min="15" class="field !py-1"
+                 value="{{ settings.poll_interval_sec }}" />
+        </div>
+      </div>
+      <div>
+        <label class="label">Test command</label>
+        <input name="test_command" class="field font-mono !text-[11.5px]"
+               value="{{ settings.test_command or 'pytest -q' }}" />
+      </div>
+      <label class="flex items-center gap-2 text-[12px] text-ink-600 cursor-pointer select-none">
+        <input type="checkbox" name="auto_apply_changes" class="rounded border-ink-300"
+               {% if settings.auto_apply_changes %}checked{% endif %} />
+        Auto-apply requirement change proposals
+      </label>
+
+      <div class="flex items-center gap-2 pt-1">
+        <button type="submit" class="btn btn-primary !py-1.5 flex-1 justify-center">Save Settings</button>
+        <button type="button" class="btn btn-ghost !py-1.5"
+                hx-post="/projects/{{ project.id }}/settings/test"
+                hx-target="#conn-result" hx-swap="innerHTML"
+                hx-indicator="#conn-spin">
+          <svg id="conn-spin" class="htmx-indicator w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="#94a3b8" stroke-width="3" stroke-dasharray="42"/></svg>
+          Test
+        </button>
+      </div>
+      <div id="conn-result"></div>
+    </form>
+  </div>
+</aside>
