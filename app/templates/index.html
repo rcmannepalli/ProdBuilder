@@ -70,20 +70,16 @@
            x-show="sidebarOpen" x-cloak style="width:300px">
       <div class="flex items-center justify-between h-8 px-3 border-b border-ink-200 shrink-0">
         <span class="sidebar-title" x-text="({explorer:'Explorer', requirements:'Requirements', plan:'Build Plan', settings:'Settings'})[view]"></span>
-        <div class="flex items-center gap-1">
-          <template x-if="view==='explorer'">
-            <button class="text-ink-400 hover:text-ink-700 text-[13px]"
-                    hx-get="/projects/{{ project.id }}/tree" hx-target="#explorer-tree"
-                    hx-swap="innerHTML" title="Refresh">↻</button>
-          </template>
-          <template x-if="view==='plan'">
-            <button class="text-ink-400 hover:text-ink-700 text-[12px]"
-                    hx-post="/projects/{{ project.id }}/plan" hx-target="#plan-region"
-                    hx-swap="innerHTML" hx-indicator="#plan-spin" title="Regenerate plan">
-              <svg id="plan-spin" class="htmx-indicator w-3 h-3 animate-spin inline" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="9" stroke="#94a3b8" stroke-width="3" stroke-dasharray="42"/></svg>
-              ⟳</button>
-          </template>
+        <div class="flex items-center gap-2">
+          <button x-show="view==='explorer'" class="text-ink-400 hover:text-ink-700 text-[13px]"
+                  hx-get="/projects/{{ project.id }}/tree" hx-target="#explorer-tree"
+                  hx-swap="innerHTML" title="Refresh">↻</button>
+          <button x-show="view==='plan'" class="text-ink-400 hover:text-brand-700 text-[11px] font-semibold flex items-center gap-1"
+                  hx-post="/projects/{{ project.id }}/plan" hx-target="#plan-region"
+                  hx-swap="innerHTML" hx-indicator="#plan-spin" title="Regenerate plan">
+            <svg id="plan-spin" class="htmx-indicator w-3 h-3 animate-spin inline" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="#94a3b8" stroke-width="3" stroke-dasharray="42"/></svg>
+            ⟳ Regenerate</button>
           <button class="text-ink-400 hover:text-ink-700 text-[13px]" @click="sidebarOpen=false" title="Collapse">«</button>
         </div>
       </div>

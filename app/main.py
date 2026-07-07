@@ -35,6 +35,12 @@ async def _startup() -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _emit_event(pid: int, agent: str, event_type: str, message: str) -> None:
+    """Persist an event and push it to the live Monitor stream."""
+    ev = repo.add_event(pid, agent, event_type, message)
+    events.publish(pid, ev)
+
+
 def _current_project(request: Request) -> dict | None:
     pid = request.query_params.get("p")
     if pid:
@@ -192,6 +198,7 @@ async def generate_plan(request: Request, pid: int):
     reqs = repo.latest_requirements(pid)
     raw = reqs["raw_text"] if reqs else ""
     cfg = LLMConfig.from_settings(repo.get_settings(pid))
+    _emit_event(pid, "Architect", "plan", "Generating build plan from requirements…")
 
     def _build():
         structured = agents.parse_requirements(cfg, raw)

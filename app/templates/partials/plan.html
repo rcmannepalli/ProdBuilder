@@ -3,9 +3,15 @@
   <div class="max-w-xs">
     <div class="text-3xl mb-2">🗂️</div>
     <p class="text-ink-600 font-medium text-[13px]">No build plan yet</p>
-    <p class="text-ink-400 text-[12px] mt-1">Write your requirements, then click
-      <span class="font-semibold text-ink-600">Regenerate Plan</span> to have the
-      Architect agent produce phases, deliverables, and test plans.</p>
+    <p class="text-ink-400 text-[12px] mt-1 mb-3">Write your requirements, then generate
+      a plan and the Architect agent will produce phases, deliverables, and test plans.</p>
+    <button class="btn btn-primary !py-1.5 mx-auto"
+            hx-post="/projects/{{ project.id }}/plan"
+            hx-target="#plan-region" hx-swap="innerHTML" hx-indicator="#plan-spin2">
+      <svg id="plan-spin2" class="htmx-indicator w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="3" stroke-dasharray="42"/></svg>
+      Generate Plan
+    </button>
   </div>
 </div>
 {% else %}
