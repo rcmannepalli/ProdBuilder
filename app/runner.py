@@ -191,9 +191,20 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
               "Settings, then Retry the phase.", phase_id=phase_id)
         return False
 
+    # 2b. Environment: create the project venv and install dependencies so the
+    # Test agent runs against a real, isolated environment.
+    if settings.get("use_venv", True):
+        _emit(pid, "Environment", "env", "Preparing virtual environment…",
+              phase_id=phase_id)
+        ok, tool, msg = executor.ensure_venv(target)
+        _emit(pid, "Environment", "env", f"[{tool}] {msg}", phase_id=phase_id)
+        iok, imsg = executor.install_requirements(target)
+        _emit(pid, "Environment", "env", f"Dependencies: {imsg}",
+              phase_id=phase_id)
+
     # 3. Test + fix loop
     max_attempts = int(settings.get("max_fix_attempts") or 3)
-    test_cmd = settings.get("test_command") or "pytest -q"
+    test_cmd = settings.get("test_command") or "python -m pytest -q"
     passed = _test_and_fix(pid, ctrl, cfg, settings, target, summary, phase,
                            test_cmd, max_attempts)
     if ctrl.stopped.is_set():
@@ -221,6 +232,33 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
     return False
 
 
+def _run_tests_autoinstall(pid: int, target: str, test_cmd: str, settings: dict,
+                           phase_id: int, max_installs: int = 3):
+    """Run tests; if they fail purely because a third-party module is missing,
+    install it into the venv and re-run (bounded). Returns the final RunResult.
+    Dependency installs never consume an LLM fix attempt."""
+    rr = executor.run_tests(target, test_cmd)
+    if not settings.get("use_venv", True):
+        return rr
+    for _ in range(max_installs):
+        if rr.passed:
+            break
+        missing = executor.extract_missing_modules(rr.stdout + rr.stderr)
+        if not missing:
+            break
+        _emit(pid, "Environment", "env",
+              f"Installing missing dependencies: {', '.join(missing)}",
+              phase_id=phase_id)
+        iok, imsg = executor.pip_install(target, missing)
+        _emit(pid, "Environment", "env",
+              ("Installed; re-testing…" if iok else f"Install issue: {imsg}"),
+              phase_id=phase_id)
+        if not iok:
+            break
+        rr = executor.run_tests(target, test_cmd)
+    return rr
+
+
 def _test_and_fix(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
                   target: str, summary: str, phase: dict, test_cmd: str,
                   max_attempts: int) -> bool:
@@ -232,7 +270,7 @@ def _test_and_fix(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
         repo.set_phase_status(phase_id, "testing")
         _emit(pid, "Validator", "test", f"Running tests (attempt {attempt})…",
               phase_id=phase_id)
-        rr = executor.run_tests(target, test_cmd)
+        rr = _run_tests_autoinstall(pid, target, test_cmd, settings, phase_id)
         repo.add_test_run(phase_id, attempt, rr.passed, rr.summary,
                           rr.stdout, rr.stderr, rr.duration_ms)
         if rr.passed:

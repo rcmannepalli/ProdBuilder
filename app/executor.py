@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
+import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,6 +111,39 @@ def list_tree(target_folder: str, limit: int = 400) -> list[str]:
     return out
 
 
+_PRD_NAMES = ["prd.md", "PRD.md", "prd.txt", "PRD.txt", "requirements.md",
+              "docs/prd.md", "docs/PRD.md"]
+
+
+def find_prd(target_folder: str) -> tuple[str, str]:
+    """Look for a product requirements doc in the target folder.
+    Returns (filename, content) or ('', '')."""
+    root = _safe_target(target_folder)
+    for name in _PRD_NAMES:
+        candidate = root / name
+        if candidate.is_file():
+            try:
+                return name, candidate.read_text(encoding="utf-8")[:20000]
+            except (UnicodeDecodeError, OSError):
+                continue
+    return "", ""
+
+
+def codebase_summary(target_folder: str, max_files: int = 40) -> str:
+    """A compact digest of an existing codebase for enrichment context:
+    the file tree plus short heads of the most relevant source files."""
+    root = _safe_target(target_folder)
+    paths = [p for p in list_tree(target_folder) if not p.endswith("/")]
+    if not paths:
+        return ""
+    lines = ["FILE TREE:", *[f"  {p}" for p in paths[:120]], "", "KEY FILES:"]
+    files = read_files(target_folder, limit=max_files)
+    for path, content in list(files.items())[:max_files]:
+        head = content[:800]
+        lines.append(f"--- {path} ---\n{head}\n")
+    return "\n".join(lines)[:12000]
+
+
 def build_tree(target_folder: str, limit: int = 800) -> list[dict]:
     """Return a nested tree of the target folder for a VS Code-style explorer.
 
@@ -163,21 +199,153 @@ def command_allowed(cmd: str) -> bool:
     return tokens[0] in ALLOWED_COMMANDS
 
 
+# ---------------------------------------------------------------------------
+# Per-project virtual environment + dependency management
+# ---------------------------------------------------------------------------
+
+def _has_uv() -> bool:
+    return shutil.which("uv") is not None
+
+
+def _venv_dir(root: Path) -> Path:
+    return root / ".venv"
+
+
+def venv_python(root: Path) -> Path:
+    """Path to the venv's python interpreter (POSIX or Windows layout)."""
+    vdir = _venv_dir(root)
+    win = vdir / "Scripts" / "python.exe"
+    return win if win.exists() else vdir / "bin" / "python"
+
+
+def _bin_dir(root: Path) -> Path:
+    vdir = _venv_dir(root)
+    win = vdir / "Scripts"
+    return win if win.exists() else vdir / "bin"
+
+
+def _run(cmd: list[str], cwd: Path, timeout: int, env: dict | None = None
+         ) -> tuple[bool, str]:
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True,
+                              timeout=timeout, env=env)
+        return proc.returncode == 0, (proc.stdout + proc.stderr)
+    except subprocess.TimeoutExpired:
+        return False, f"timed out after {timeout}s"
+    except FileNotFoundError as e:
+        return False, str(e)
+
+
+def ensure_venv(target_folder: str, timeout: int = 240) -> tuple[bool, str, str]:
+    """Ensure a virtual environment exists in the target folder.
+
+    Uses `uv` when available (fast), else stdlib venv. Returns
+    (ok, tool, message). Idempotent — reuses an existing .venv.
+    """
+    root = _safe_target(target_folder)
+    if venv_python(root).exists():
+        return True, "uv" if _has_uv() else "venv", "Reusing existing .venv"
+    if _has_uv():
+        ok, out = _run(["uv", "venv", ".venv"], root, timeout)
+        return ok, "uv", ("Created .venv with uv" if ok else out[-400:])
+    ok, out = _run([sys.executable, "-m", "venv", ".venv"], root, timeout)
+    return ok, "venv", ("Created .venv" if ok else out[-400:])
+
+
+def venv_env(target_folder: str) -> dict:
+    """Environment with the project's venv activated (if it exists) and the
+    project root on PYTHONPATH so tests can import top-level modules."""
+    root = _safe_target(target_folder)
+    env = dict(os.environ)
+    env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(root) + (os.pathsep + existing_pp if existing_pp else "")
+    vpy = venv_python(root)
+    if vpy.exists():
+        env["VIRTUAL_ENV"] = str(_venv_dir(root))
+        env["PATH"] = str(_bin_dir(root)) + os.pathsep + env.get("PATH", "")
+        env.pop("PYTHONHOME", None)
+    return env
+
+
+def pip_install(target_folder: str, packages: list[str],
+                timeout: int = 300) -> tuple[bool, str]:
+    """Install packages into the project's venv (uv pip if available)."""
+    root = _safe_target(target_folder)
+    pkgs = [p for p in packages if _SAFE_PKG.match(p)]
+    if not pkgs:
+        return True, "nothing to install"
+    env = venv_env(target_folder)
+    vpy = venv_python(root)
+    if _has_uv():
+        cmd = ["uv", "pip", "install", "--python", str(vpy), *pkgs]
+    else:
+        cmd = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check",
+               "-q", *pkgs]
+    ok, out = _run(cmd, root, timeout, env=env)
+    return ok, out[-600:]
+
+
+def install_requirements(target_folder: str, timeout: int = 600
+                         ) -> tuple[bool, str]:
+    """Install requirements.txt (if present) plus pytest, into the venv."""
+    root = _safe_target(target_folder)
+    env = venv_env(target_folder)
+    vpy = venv_python(root)
+    msgs = []
+    req = root / "requirements.txt"
+    if req.exists():
+        if _has_uv():
+            cmd = ["uv", "pip", "install", "--python", str(vpy), "-r",
+                   "requirements.txt"]
+        else:
+            cmd = [str(vpy), "-m", "pip", "install", "--disable-pip-version-check",
+                   "-q", "-r", "requirements.txt"]
+        ok, out = _run(cmd, root, timeout, env=env)
+        msgs.append("requirements.txt installed" if ok else out[-400:])
+    # Always ensure pytest is available for the test runner.
+    ok2, _ = _run(
+        (["uv", "pip", "install", "--python", str(vpy), "pytest"] if _has_uv()
+         else [str(vpy), "-m", "pip", "install", "-q", "pytest"]),
+        root, 180, env=env)
+    msgs.append("pytest ready" if ok2 else "pytest install failed")
+    return ok2, "; ".join(msgs)
+
+
+# import-name -> pip package for common mismatches
+_IMPORT_TO_PACKAGE = {
+    "yaml": "pyyaml", "cv2": "opencv-python", "PIL": "pillow",
+    "bs4": "beautifulsoup4", "sklearn": "scikit-learn", "dotenv": "python-dotenv",
+    "jose": "python-jose", "jwt": "pyjwt", "psycopg2": "psycopg2-binary",
+    "dateutil": "python-dateutil", "OpenSSL": "pyopenssl", "attr": "attrs",
+    "google": "google-api-python-client", "serial": "pyserial",
+}
+_SAFE_PKG = re.compile(r"^[A-Za-z0-9_.\-]+(\[[A-Za-z0-9_,\-]+\])?$")
+_STDLIB_HINT = {"os", "sys", "json", "re", "math", "typing", "pathlib", "asyncio",
+                "dataclasses", "datetime", "collections", "itertools", "functools",
+                "unittest", "sqlite3", "subprocess", "logging", "enum"}
+
+
+def extract_missing_modules(text: str) -> list[str]:
+    """Parse ModuleNotFoundError names from test output and map to pip packages."""
+    names = set(re.findall(r"No module named ['\"]([A-Za-z0-9_]+)", text or ""))
+    packages = []
+    for name in names:
+        if name in _STDLIB_HINT:
+            continue
+        packages.append(_IMPORT_TO_PACKAGE.get(name, name))
+    return sorted(set(packages))
+
+
 def run_tests(target_folder: str, test_command: str,
               timeout: int = 300) -> RunResult:
-    """Execute the configured test command inside the target folder."""
+    """Execute the configured test command inside the target folder, using the
+    project's virtual environment when one exists."""
     root = _safe_target(target_folder)
     if not command_allowed(test_command):
         return RunResult(False, "Refused: command not allowed", "",
                          f"Command '{test_command}' is not in the allow-list.", 0)
-    env = dict(os.environ)
-    env.setdefault("PYTHONDONTWRITEBYTECODE", "1")
-    # Put the project root on PYTHONPATH so tests can import top-level modules
-    # (e.g. `import main` / `import app`) regardless of where the test file
-    # lives. Bare `pytest` otherwise only adds the test file's own directory to
-    # sys.path, which breaks `tests/test_*.py` importing project-root modules.
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(root) + (os.pathsep + existing_pp if existing_pp else "")
+    env = venv_env(target_folder)
     start = time.time()
     try:
         proc = subprocess.run(

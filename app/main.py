@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agents, events, executor, llm, repo
+from . import agents, events, executor, llm, logging_conf, repo
 from .config import (APP_NAME, APP_TAGLINE, BASE_DIR, DEFAULT_MODEL_MAP,
                      PROVIDER_KINDS)
 from .db import get_conn
@@ -27,8 +27,10 @@ ROLES = ["planner", "coder", "tester", "fixer", "reviewer", "monitor"]
 
 @app.on_event("startup")
 async def _startup() -> None:
+    logging_conf.configure()
     get_conn()  # initialise schema
     events.set_loop(asyncio.get_event_loop())
+    logging_conf.logger.info("%s started", APP_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +61,7 @@ def _dashboard_ctx(request: Request, project: dict | None) -> dict:
         "roles": ROLES,
         "default_model_map": DEFAULT_MODEL_MAP,
         "provider_kinds": PROVIDER_KINDS,
+        "log_level": logging_conf.current_level(),
     }
     if project:
         pid = project["id"]
@@ -128,7 +131,8 @@ async def save_settings(request: Request, pid: int):
         max_fix_attempts=form.get("max_fix_attempts") or 3,
         poll_interval_sec=form.get("poll_interval_sec") or 60,
         auto_apply_changes=bool(form.get("auto_apply_changes")),
-        test_command=(form.get("test_command") or "pytest -q").strip(),
+        use_venv=bool(form.get("use_venv")),
+        test_command=(form.get("test_command") or "python -m pytest -q").strip(),
     )
     return templates.TemplateResponse(request, "partials/saved.html",
                                       {"request": request, "label": "Settings saved"})
@@ -195,14 +199,28 @@ async def test_connection(request: Request, pid: int):
 
 @app.post("/projects/{pid}/plan", response_class=HTMLResponse)
 async def generate_plan(request: Request, pid: int):
+    project = repo.get_project(pid)
+    target = project["target_folder"] if project else ""
     reqs = repo.latest_requirements(pid)
     raw = reqs["raw_text"] if reqs else ""
+
+    # If a PRD exists in the target folder and no requirements are saved, use it.
+    prd_name, prd_text = executor.find_prd(target) if target else ("", "")
+    if prd_text and not raw.strip():
+        raw = prd_text
+        repo.add_requirements_version(pid, raw)
+        reqs = repo.latest_requirements(pid)
+        _emit_event(pid, "Architect", "plan", f"Imported requirements from {prd_name}.")
+
+    # Enrichment mode when the folder already contains source.
+    existing_code = executor.codebase_summary(target) if target and _has_code(target) else ""
     cfg = LLMConfig.from_settings(repo.get_settings(pid))
-    _emit_event(pid, "Architect", "plan", "Generating build plan from requirements…")
+    mode = "Enriching existing codebase" if existing_code else "Generating build plan"
+    _emit_event(pid, "Architect", "plan", f"{mode} from requirements…")
 
     def _build():
         structured = agents.parse_requirements(cfg, raw)
-        plan = agents.generate_plan(cfg, structured, raw)
+        plan = agents.generate_plan(cfg, structured, raw, existing_code=existing_code)
         repo.clear_plan(pid)
         for i, ph in enumerate(plan, start=1):
             phase_id = repo.add_phase(pid, i, ph["name"], ph["description"],
@@ -216,11 +234,32 @@ async def generate_plan(request: Request, pid: int):
         repo.add_requirements_version(pid, raw,
                                       structured_json=json.dumps(structured))
     repo.add_event(pid, "Architect", "plan",
-                   f"Generated build plan with {len(repo.list_phases(pid))} phases.")
-    return templates.TemplateResponse(request, 
+                   f"Generated {len(repo.list_phases(pid))}-phase "
+                   f"{'enrichment ' if existing_code else ''}plan.")
+    return templates.TemplateResponse(request,
         "partials/plan.html",
         {"request": request, "project": repo.get_project(pid),
          "phases": repo.list_phases(pid), "run_status": runner.status(pid)})
+
+
+def _has_code(target: str) -> bool:
+    exts = (".py", ".js", ".ts", ".go", ".rs", ".java", ".rb", ".php")
+    return any(p.lower().endswith(exts) for p in executor.list_tree(target))
+
+
+@app.post("/projects/{pid}/import-prd", response_class=HTMLResponse)
+async def import_prd(request: Request, pid: int):
+    project = repo.get_project(pid)
+    target = project["target_folder"] if project else ""
+    name, text = executor.find_prd(target) if target else ("", "")
+    if text:
+        repo.add_requirements_version(pid, text)
+        label = f"Imported {name}"
+    else:
+        label = "No PRD found in target folder"
+    ctx = _dashboard_ctx(request, project)
+    ctx["prd_label"] = label
+    return templates.TemplateResponse(request, "partials/sidebar_requirements.html", ctx)
 
 
 @app.get("/projects/{pid}/plan", response_class=HTMLResponse)
@@ -275,10 +314,31 @@ async def status_pill(request: Request, pid: int):
 
 @app.get("/projects/{pid}/monitor", response_class=HTMLResponse)
 async def monitor(request: Request, pid: int, after: int = 0):
-    return templates.TemplateResponse(request, 
+    return templates.TemplateResponse(request,
         "partials/monitor.html",
         {"request": request, "project_id": pid,
          "events": repo.list_events(pid, after_id=after)})
+
+
+@app.post("/projects/{pid}/logs/clear", response_class=HTMLResponse)
+async def clear_activity(request: Request, pid: int):
+    repo.clear_events(pid)
+    logging_conf.logger.info("Activity log cleared for project %s", pid)
+    return templates.TemplateResponse(request, "partials/monitor.html",
+                                      {"request": request, "project_id": pid,
+                                       "events": []})
+
+
+@app.post("/log-level", response_class=HTMLResponse)
+async def set_log_level(request: Request):
+    form = await request.form()
+    level = logging_conf.set_level((form.get("level") or "INFO"))
+    if form.get("clear"):
+        logging_conf.clear_log_file()
+    return templates.TemplateResponse(request, "partials/log_level.html",
+                                      {"request": request,
+                                       "level": level,
+                                       "cleared": bool(form.get("clear"))})
 
 
 def _render_event_html(ev: dict) -> str:

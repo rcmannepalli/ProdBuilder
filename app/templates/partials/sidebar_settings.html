@@ -28,8 +28,29 @@
              {% if settings.auto_apply_changes %}checked{% endif %} />
       Auto-apply requirement change proposals
     </label>
+    <label class="flex items-center gap-2 text-[12px] text-ink-600 cursor-pointer select-none">
+      <input type="checkbox" name="use_venv" class="rounded border-ink-300"
+             {% if settings.use_venv %}checked{% endif %} />
+      Test in an isolated venv (auto-install dependencies)
+    </label>
     <button type="submit" class="btn btn-primary !py-1.5 w-full justify-center">Save Settings</button>
   </form>
+
+  <!-- Website logging (app-wide) -->
+  <div>
+    <div class="panel-title mb-1.5">Website Logging</div>
+    <form hx-post="/log-level" hx-target="#log-result" hx-swap="innerHTML"
+          class="flex items-center gap-2">
+      <select name="level" class="field !py-1 flex-1">
+        <option value="INFO" {% if log_level == 'INFO' %}selected{% endif %}>INFO (verbose)</option>
+        <option value="ERROR" {% if log_level == 'ERROR' %}selected{% endif %}>ERROR (quiet)</option>
+      </select>
+      <button type="submit" class="btn btn-ghost !py-1">Apply</button>
+      <button type="submit" name="clear" value="1" class="btn btn-danger !py-1"
+              title="Set level and clear the website log file">Clear log</button>
+    </form>
+    <div id="log-result" class="mt-1"></div>
+  </div>
 
   <!-- Providers / platforms (the per-role fields below submit with settings-form) -->
   <div id="providers-region">

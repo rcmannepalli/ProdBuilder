@@ -67,6 +67,21 @@ def test_plan_phases_tasks_and_events(tmp_path):
     assert any(e["message"] == "hello" for e in evs)
 
 
+def test_clear_events_and_log_level(tmp_path):
+    from app import logging_conf
+    pid = repo.create_project("Logs", str(tmp_path / "o"))
+    repo.add_event(pid, "System", "test", "one")
+    repo.add_event(pid, "System", "test", "two")
+    assert len(repo.list_events(pid)) == 2
+    repo.clear_events(pid)
+    assert repo.list_events(pid) == []
+    # Log level toggles between INFO and ERROR only.
+    logging_conf.configure()
+    assert logging_conf.set_level("ERROR") == "ERROR"
+    assert logging_conf.set_level("bogus") == "INFO"  # invalid -> INFO
+    assert logging_conf.clear_log_file() in (True, False)
+
+
 def test_change_proposals(tmp_path):
     pid = repo.create_project("CP", str(tmp_path / "o"))
     cp = repo.add_proposal(pid, "monitor", "changed", {"changes": ["a", "b"]})
@@ -139,6 +154,44 @@ def test_providers_crud_and_per_role_resolution(tmp_path):
     assert not repo.get_provider(local)["enabled"]
     repo.delete_provider(local)
     assert all(p["id"] != local for p in repo.list_providers(pid))
+
+
+def test_find_prd_and_codebase_summary(tmp_path):
+    from app.executor import codebase_summary, find_prd, write_files as wf
+    target = str(tmp_path / "existing")
+    wf(target, [
+        {"path": "app.py", "content": "def greet():\n    return 'hi'\n"},
+        {"path": "PRD.md", "content": "# PRD\nAdd auth and a /health route."},
+    ])
+    name, text = find_prd(target)
+    assert name == "PRD.md" and "auth" in text
+    summary = codebase_summary(target)
+    assert "app.py" in summary and "def greet" in summary
+    # No PRD -> empty.
+    assert find_prd(str(tmp_path / "nope"))[0] == ""
+
+
+def test_venv_creation_and_activation(tmp_path):
+    from pathlib import Path
+    from app.executor import ensure_venv, venv_env, venv_python
+    target = str(tmp_path / "venvproj")
+    ok, tool, msg = ensure_venv(target)
+    assert ok, msg
+    assert venv_python(Path(target)).exists()
+    env = venv_env(target)
+    assert "VIRTUAL_ENV" in env
+    assert str(Path(target) / ".venv") in env["PATH"]
+    # Project root is also on PYTHONPATH for imports.
+    assert str(Path(target).resolve()) in env["PYTHONPATH"]
+
+
+def test_extract_missing_modules_maps_and_filters():
+    from app.executor import extract_missing_modules
+    out = extract_missing_modules(
+        "E   ModuleNotFoundError: No module named 'yaml'\n"
+        "    No module named 'requests'\n"
+        "    No module named 'os'\n")  # stdlib filtered
+    assert "pyyaml" in out and "requests" in out and "os" not in out
 
 
 def test_command_allowlist():

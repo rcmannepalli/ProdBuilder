@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS settings (
     auto_apply_changes BOOLEAN DEFAULT FALSE,
     poll_interval_sec INTEGER DEFAULT 60,
     test_command TEXT,
+    use_venv BOOLEAN DEFAULT TRUE,
     updated_at TEXT NOT NULL
 );
 
@@ -153,6 +154,7 @@ def _init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     # Lightweight migrations for pre-existing databases.
     for mig in (
         "ALTER TABLE settings ADD COLUMN IF NOT EXISTS provider_map_json TEXT",
+        "ALTER TABLE settings ADD COLUMN IF NOT EXISTS use_venv BOOLEAN DEFAULT TRUE",
     ):
         try:
             conn.execute(mig)

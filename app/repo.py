@@ -162,6 +162,9 @@ def update_settings(pid: int, **fields: Any) -> None:
     if "auto_apply_changes" in fields:
         sets.append("auto_apply_changes = ?")
         params.append(bool(fields["auto_apply_changes"]))
+    if "use_venv" in fields:
+        sets.append("use_venv = ?")
+        params.append(bool(fields["use_venv"]))
     if "test_command" in fields:
         sets.append("test_command = ?")
         params.append(fields["test_command"])
@@ -342,6 +345,10 @@ def add_event(pid: int, agent_name: str, event_type: str, message: str,
         "agent_name": agent_name, "event_type": event_type,
         "message": message, "created_at": db.now(),
     }
+
+
+def clear_events(pid: int) -> None:
+    db.execute("DELETE FROM agent_events WHERE project_id = ?", (pid,))
 
 
 def list_events(pid: int, after_id: int = 0, limit: int = 300) -> list[dict]:

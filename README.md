@@ -45,6 +45,30 @@ shows the generated files, and a live **Monitor** panel. The Explorer is a real
 nested file/folder tree of the target folder — click any file to view its
 contents (with line numbers) in the editor as the agents write it.
 
+### Isolated test environments
+
+The Test/Validator step runs in a **per-project virtual environment** created
+inside the target folder (`.venv`, via `uv` when available, else stdlib `venv`).
+It installs `requirements.txt` + `pytest`, and when a test fails with
+`ModuleNotFoundError` it **auto-installs the missing package** and re-runs —
+without spending an LLM fix attempt. Toggle with *"Test in an isolated venv"* in
+Settings.
+
+### Enrich an existing app / read a PRD
+
+Point a project at a folder that already contains code and ProdBuilder switches
+to **enrichment mode**: the planner is given a digest of the existing codebase
+and produces phases that extend/refactor it rather than scaffolding from scratch.
+If a `prd.md` / `PRD.md` (or `docs/PRD.md`, `requirements.md`) exists in the
+target folder, use **Import PRD** in the Requirements panel to load it as the
+requirements — or just generate a plan and it's picked up automatically.
+
+### Logs
+
+Clear a project's activity log from the Monitor footer. Website logging is
+configurable between **INFO** (verbose) and **ERROR** (quiet) in Settings, with a
+one-click **Clear log** for the rotating log file under the data directory.
+
 ### Multiple LLM platforms
 
 Add several platforms in Settings (Ollama Cloud, local Ollama, llama.cpp, or any

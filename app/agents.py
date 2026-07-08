@@ -40,7 +40,18 @@ def parse_requirements(cfg: LLMConfig, raw: str) -> dict:
 # Build plan
 # ---------------------------------------------------------------------------
 
-def generate_plan(cfg: LLMConfig, structured: dict, raw: str) -> list[dict]:
+def generate_plan(cfg: LLMConfig, structured: dict, raw: str,
+                  existing_code: str = "") -> list[dict]:
+    if existing_code:
+        mode = (
+            "This is an ENRICHMENT of an EXISTING codebase (shown below). Produce "
+            "phases that ADD, EXTEND, REFACTOR, or FIX the existing code to satisfy "
+            "the requirements — do NOT scaffold from scratch or recreate files that "
+            "already exist. Reuse existing modules; reference their real file paths.\n\n"
+            f"EXISTING CODEBASE:\n{existing_code}\n\n"
+        )
+    else:
+        mode = ""
     user = (
         "Given the structured product spec below, produce a phased build plan as "
         "JSON with this exact shape:\n"
@@ -51,7 +62,7 @@ def generate_plan(cfg: LLMConfig, structured: dict, raw: str) -> list[dict]:
         "Rules: 3-7 phases, each phase independently testable, ordered so each "
         "builds on the previous, every phase has a non-empty test_plan, and code "
         "tasks list concrete file paths relative to the project root.\n\n"
-        f"SPEC:\n{structured}\n\nRAW REQUIREMENTS:\n{raw}"
+        f"{mode}SPEC:\n{structured}\n\nRAW REQUIREMENTS:\n{raw}"
     )
     out, _diag = _safe_json(cfg, "planner", _JSON_SYS, user)
     phases = out.get("phases") if isinstance(out, dict) else None
