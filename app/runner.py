@@ -185,10 +185,8 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
 
     # Guard: if the target folder still has no source files, testing is futile.
     if not _has_source(target):
-        _emit(pid, "System", "warn",
-              "No source files were produced in this phase — the Coder agent "
-              "returned nothing usable. Verify the Ollama model and API key in "
-              "Settings, then Retry the phase.", phase_id=phase_id)
+        _escalate(pid, cfg, target, phase,
+                  "The Coder agent produced no source files for this phase.")
         return False
 
     # 2b. Environment: create the project venv and install dependencies so the
@@ -201,6 +199,17 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
         iok, imsg = executor.install_requirements(target)
         _emit(pid, "Environment", "env", f"Dependencies: {imsg}",
               phase_id=phase_id)
+        # Proactively install third-party libraries the code imports, so
+        # validation isn't blocked on a missing dependency.
+        imports = executor.scan_imports(target)
+        if imports:
+            _emit(pid, "Environment", "env",
+                  f"Installing imported libraries: {', '.join(imports)}",
+                  phase_id=phase_id)
+            pok, pmsg = executor.pip_install(target, imports)
+            _emit(pid, "Environment", "env",
+                  ("Imported libraries ready" if pok else f"Install issue: {pmsg}"),
+                  phase_id=phase_id)
 
     # 3. Test + fix loop
     max_attempts = int(settings.get("max_fix_attempts") or 3)
@@ -210,7 +219,10 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
     if ctrl.stopped.is_set():
         return False
     if not passed:
-        repo.set_phase_status(phase_id, "needs_attention")
+        last = repo.latest_test_run(phase_id) or {}
+        _escalate(pid, cfg, target, phase,
+                  f"Tests still failing after {max_attempts} automated fix attempts.",
+                  stdout=last.get("stdout", ""), stderr=last.get("stderr", ""))
         return False
 
     # 4. Review gate
@@ -228,7 +240,9 @@ def _run_phase(pid: int, ctrl: Control, cfg: LLMConfig, settings: dict,
     _emit(pid, "Reviewer", "warn",
           f"Review found gaps: {'; '.join(gaps) or review.get('notes', '')}",
           phase_id=phase_id, payload=review)
-    repo.set_phase_status(phase_id, "needs_attention")
+    _escalate(pid, cfg, target, phase,
+              "Tests pass but the Reviewer found unmet acceptance criteria: "
+              + ("; ".join(gaps) or review.get("notes", "")))
     return False
 
 
@@ -377,6 +391,30 @@ def reject_proposal(pid: int, cp_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _escalate(pid: int, cfg: LLMConfig, target: str, phase: dict, reason: str,
+              stdout: str = "", stderr: str = "") -> None:
+    """Build a clear developer resolution report, store it on the phase, and
+    surface it prominently. Used whenever a phase cannot be completed
+    automatically."""
+    phase_id = phase["id"]
+    _emit(pid, "Reviewer", "task",
+          "Preparing a resolution report for the developer…", phase_id=phase_id)
+    try:
+        diag = agents.diagnose_failure(cfg, phase, reason, stdout, stderr,
+                                       executor.read_files(target))
+    except Exception as e:  # noqa: BLE001
+        diag = {"problem": reason, "likely_cause": f"{type(e).__name__}: {e}",
+                "recommended_actions": ["Review the activity log and target files."],
+                "severity": "medium"}
+    repo.set_phase_attention(phase_id, diag)
+    repo.set_phase_status(phase_id, "needs_attention")
+    actions = " | ".join(diag.get("recommended_actions", [])[:3])
+    _emit(pid, "System", "attention",
+          f"⚠ NEEDS DEVELOPER ATTENTION — {diag.get('problem', reason)}. "
+          f"Recommended: {actions}",
+          phase_id=phase_id, payload=diag)
+
 
 def _project_summary(reqs: dict | None) -> str:
     if not reqs:

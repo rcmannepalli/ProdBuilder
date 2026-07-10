@@ -1,0 +1,68 @@
+{% set wf = wf %}
+<div class="h-full flex flex-col bg-ink-50">
+  <!-- Header -->
+  <div class="flex items-center gap-3 px-4 h-11 border-b border-ink-200 bg-white shrink-0">
+    <span class="panel-title">Agent Workflow</span>
+    <span class="badge st-{{ 'running' if wf.run_status=='running' else 'paused' if wf.run_status=='paused' else 'idle' }}">
+      <span class="badge-dot {% if wf.run_status=='running' %}bg-blue-500 pulse{% elif wf.run_status=='paused' %}bg-amber-500{% else %}bg-ink-400{% endif %}"></span>
+      {{ wf.run_status }}
+    </span>
+    <div class="flex-1"></div>
+    {% if wf.current_phase %}
+    <span class="text-[12px] text-ink-600">Phase: <span class="font-semibold text-ink-800">{{ wf.current_phase.name }}</span></span>
+    <span class="badge st-{{ wf.current_phase.status }}">{{ wf.current_phase.status|replace('_',' ') }}</span>
+    {% endif %}
+    <span class="text-[11px] text-ink-400">{{ wf.phase_done }}/{{ wf.phase_total }} phases done</span>
+  </div>
+
+  <!-- Pipeline graph -->
+  <div class="overflow-x-auto px-4 pt-4 pb-2 shrink-0">
+    <div class="flex items-stretch gap-0 min-w-max">
+      {% for n in wf.nodes %}
+      <div class="flex items-stretch">
+        <div class="wf-node wf-{{ n.status }}" style="width:150px">
+          <div class="flex items-center gap-1.5">
+            <span class="text-base leading-none">{{ n.icon }}</span>
+            <span class="text-[12px] font-semibold text-ink-800 flex-1">{{ n.agent }}</span>
+            {% if n.status == 'active' %}<span class="wf-dot bg-blue-500 pulse"></span>
+            {% elif n.status == 'done' %}<span class="text-emerald-500 text-[11px]">✓</span>
+            {% elif n.status == 'error' %}<span class="text-rose-500 text-[11px]">!</span>{% endif %}
+          </div>
+          <div class="text-[10px] text-ink-400 mt-0.5">{{ n.role }}</div>
+          {% if n.last_msg %}
+          <div class="text-[10.5px] text-ink-600 mt-1.5 leading-snug wf-msg">{{ n.last_msg }}</div>
+          <div class="text-[9px] text-ink-400 mt-0.5 font-mono">{{ n.last_time }}</div>
+          {% else %}
+          <div class="text-[10px] text-ink-300 mt-1.5 italic">waiting…</div>
+          {% endif %}
+        </div>
+        {% if not loop.last %}
+        <div class="flex items-center px-1 text-ink-300 text-lg">→</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <!-- Feedback loop: Fixer → Validator -->
+    <div class="flex items-center gap-2 mt-1.5 ml-[520px] text-[10px] text-rose-500">
+      <span>↩</span><span class="italic">on failure, Fixer feeds patches back to the Validator (bounded retries)</span>
+    </div>
+  </div>
+
+  <!-- Timeline (inputs / feedback) -->
+  <div class="flex-1 min-h-0 flex flex-col border-t border-ink-200 bg-white">
+    <div class="px-4 pt-2 pb-1 panel-title shrink-0">Timeline — inputs &amp; feedback</div>
+    <div class="flex-1 overflow-y-auto px-3 pb-3">
+      {% if not wf.timeline %}
+      <div class="text-ink-400 text-[12px] italic px-1 py-2">No activity yet. Start a build to see the agents work.</div>
+      {% endif %}
+      {% for t in wf.timeline %}
+      <div class="flex items-baseline gap-2 py-0.5 {% if t.type == 'attention' %}bg-rose-50 rounded px-1{% endif %}">
+        <span class="text-[9px] text-ink-400 font-mono w-14 shrink-0">{{ t.time }}</span>
+        <span class="wf-dot shrink-0 agent-{{ t.agent_key }}" style="background:currentColor"></span>
+        <span class="text-[11px] font-semibold w-20 shrink-0 agent-{{ t.agent_key }}">{{ t.agent }}</span>
+        <span class="text-[11.5px] text-ink-600 leading-snug">{{ t.message }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

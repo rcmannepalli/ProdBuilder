@@ -67,6 +67,40 @@ def test_plan_phases_tasks_and_events(tmp_path):
     assert any(e["message"] == "hello" for e in evs)
 
 
+def test_workflow_state(tmp_path):
+    from app import workflow
+    pid = repo.create_project("WF", str(tmp_path / "o"))
+    repo.add_event(pid, "Architect", "plan", "planned")
+    repo.add_event(pid, "Coder", "files", "wrote main.py")
+    repo.add_event(pid, "Validator", "warn", "tests failed")
+    st = workflow.build_state(pid)
+    by = {n["agent"]: n for n in st["nodes"]}
+    assert by["Architect"]["status"] == "done"
+    assert by["Coder"]["status"] == "done"
+    assert by["Validator"]["status"] == "error"   # last event was a warn
+    assert by["Reviewer"]["status"] == "idle"      # never ran
+    assert st["timeline"] and st["timeline"][0]["agent"] == "Validator"  # newest first
+
+
+def test_phase_attention_roundtrip(tmp_path):
+    pid = repo.create_project("Att", str(tmp_path / "o"))
+    ph = repo.add_phase(pid, 1, "P", "d", [], ["t"])
+    repo.set_phase_attention(ph, {"problem": "boom", "recommended_actions": ["do x"],
+                                  "severity": "high"})
+    got = repo.get_phase(ph)["attention"]
+    assert got["problem"] == "boom" and got["recommended_actions"] == ["do x"]
+    repo.set_phase_attention(ph, None)
+    assert repo.get_phase(ph)["attention"] is None
+
+
+def test_diagnose_failure_fallback():
+    from app.agents import _fallback_diagnosis
+    d = _fallback_diagnosis("tests failed", "", "ModuleNotFoundError: No module named 'foo'")
+    assert "foo" in d["problem"] and d["recommended_actions"]
+    d2 = _fallback_diagnosis("tests failed", "", "E assert 1 == 2")
+    assert "assertion" in d2["problem"].lower()
+
+
 def test_clear_events_and_log_level(tmp_path):
     from app import logging_conf
     pid = repo.create_project("Logs", str(tmp_path / "o"))

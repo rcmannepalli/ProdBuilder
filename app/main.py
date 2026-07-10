@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import agents, events, executor, llm, logging_conf, repo
+from . import agents, events, executor, llm, logging_conf, repo, workflow
 from .config import (APP_NAME, APP_TAGLINE, BASE_DIR, DEFAULT_MODEL_MAP,
                      PROVIDER_KINDS)
 from .db import get_conn
@@ -273,6 +273,7 @@ async def get_plan(request: Request, pid: int):
 @app.post("/projects/{pid}/phases/{phase_id}/retry", response_class=HTMLResponse)
 async def retry_phase(request: Request, pid: int, phase_id: int):
     repo.set_phase_status(phase_id, "pending")
+    repo.set_phase_attention(phase_id, None)
     for t in repo.list_tasks(phase_id):
         repo.set_task_status(t["id"], "pending")
     repo.add_event(pid, "System", "control", "Phase reset to pending.",
@@ -318,6 +319,14 @@ async def monitor(request: Request, pid: int, after: int = 0):
         "partials/monitor.html",
         {"request": request, "project_id": pid,
          "events": repo.list_events(pid, after_id=after)})
+
+
+@app.get("/projects/{pid}/workflow", response_class=HTMLResponse)
+async def get_workflow(request: Request, pid: int):
+    state = workflow.build_state(pid)
+    return templates.TemplateResponse(request, "partials/workflow.html",
+                                      {"request": request, "project_id": pid,
+                                       "wf": state})
 
 
 @app.post("/projects/{pid}/logs/clear", response_class=HTMLResponse)

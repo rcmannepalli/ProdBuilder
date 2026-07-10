@@ -2,8 +2,9 @@
 {% block body %}
 <div class="h-full flex flex-col"
      x-data="{ newProject: false, view: 'explorer', sidebarOpen: true,
-               panelOpen: true, monitorTab: 'activity', openFile: '' }"
-     @file-open.window="openFile = $event.detail.path; window.__openFile = $event.detail.path">
+               panelOpen: true, monitorTab: 'activity', openFile: '',
+               center: 'editor' }"
+     @file-open.window="openFile = $event.detail.path; window.__openFile = $event.detail.path; center='editor'">
 
   <!-- ═══════════════ Top bar ═══════════════ -->
   <header class="bg-ink-900 text-white flex items-center h-11 px-3 gap-3 shrink-0 shadow-sm z-20">
@@ -58,6 +59,8 @@
            @click="view='requirements'; sidebarOpen=true" title="Requirements">📝</div>
       <div class="actbar-btn" :class="view==='plan' && sidebarOpen && 'active'"
            @click="view='plan'; sidebarOpen=true" title="Build Plan">📋</div>
+      <div class="actbar-btn" :class="center==='workflow' && 'active'"
+           @click="center = center==='workflow' ? 'editor' : 'workflow'" title="Agent Workflow">🔀</div>
       <div class="flex-1"></div>
       <div class="actbar-btn" :class="panelOpen && 'active'"
            @click="panelOpen=!panelOpen" title="Monitor">📡</div>
@@ -109,10 +112,20 @@
       </div>
     </aside>
 
-    <!-- Editor -->
+    <!-- Center: Editor / Workflow -->
     <main class="flex-1 min-w-0 min-h-0 flex flex-col bg-white">
-      <div id="editor" class="flex-1 min-h-0">
+      <div class="flex items-center h-8 border-b border-ink-200 bg-white shrink-0 px-1">
+        <span class="center-tab" :class="center==='editor' && 'on'" @click="center='editor'">Editor</span>
+        <span class="center-tab" :class="center==='workflow' && 'on'" @click="center='workflow'">🔀 Workflow</span>
+      </div>
+      <div x-show="center==='editor'" id="editor" class="flex-1 min-h-0">
         {% include "partials/editor.html" %}
+      </div>
+      <div x-show="center==='workflow'" x-cloak class="flex-1 min-h-0"
+           id="workflow-region"
+           hx-get="/projects/{{ project.id }}/workflow"
+           hx-trigger="load, every 2s" hx-swap="innerHTML">
+        <div class="h-full flex items-center justify-center text-ink-400 text-[12px]">Loading workflow…</div>
       </div>
     </main>
 

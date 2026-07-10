@@ -326,6 +326,49 @@ _STDLIB_HINT = {"os", "sys", "json", "re", "math", "typing", "pathlib", "asyncio
                 "unittest", "sqlite3", "subprocess", "logging", "enum"}
 
 
+def _local_module_names(root: Path) -> set[str]:
+    """Top-level importable names that belong to the project itself."""
+    names = set()
+    for child in root.iterdir():
+        if child.name.startswith((".", "_")):
+            continue
+        if child.is_dir() and (child / "__init__.py").exists():
+            names.add(child.name)
+        elif child.is_dir():
+            names.add(child.name)  # namespace/src-style dirs
+        elif child.suffix == ".py":
+            names.add(child.stem)
+    names.update({"tests", "test", "conftest"})
+    return names
+
+
+def scan_imports(target_folder: str) -> list[str]:
+    """Scan all .py files for third-party top-level imports and map them to pip
+    packages. Filters stdlib and the project's own modules."""
+    root = _safe_target(target_folder)
+    try:
+        import sys as _sys
+        stdlib = set(getattr(_sys, "stdlib_module_names", set()))
+    except Exception:  # noqa: BLE001
+        stdlib = set()
+    stdlib |= _STDLIB_HINT
+    local = _local_module_names(root)
+    found: set[str] = set()
+    pat = re.compile(r"^\s*(?:import\s+([A-Za-z0-9_]+)|from\s+([A-Za-z0-9_]+))",
+                     re.MULTILINE)
+    for path, content in read_files(target_folder, limit=120).items():
+        if not path.endswith(".py"):
+            continue
+        for m in pat.finditer(content):
+            name = m.group(1) or m.group(2)
+            if not name or name.startswith("_"):
+                continue
+            if name in stdlib or name in local:
+                continue
+            found.add(_IMPORT_TO_PACKAGE.get(name, name))
+    return sorted(found)
+
+
 def extract_missing_modules(text: str) -> list[str]:
     """Parse ModuleNotFoundError names from test output and map to pip packages."""
     names = set(re.findall(r"No module named ['\"]([A-Za-z0-9_]+)", text or ""))

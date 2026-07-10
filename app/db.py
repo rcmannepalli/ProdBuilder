@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS phases (
     test_plan_json TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     started_at TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    attention_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -155,6 +156,7 @@ def _init_schema(conn: duckdb.DuckDBPyConnection) -> None:
     for mig in (
         "ALTER TABLE settings ADD COLUMN IF NOT EXISTS provider_map_json TEXT",
         "ALTER TABLE settings ADD COLUMN IF NOT EXISTS use_venv BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE phases ADD COLUMN IF NOT EXISTS attention_json TEXT",
     ):
         try:
             conn.execute(mig)

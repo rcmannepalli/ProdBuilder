@@ -40,6 +40,35 @@
       <p class="text-[12px] text-ink-500 mt-2 leading-relaxed">{{ phase.description }}</p>
       {% endif %}
 
+      <!-- Needs-attention resolution report -->
+      {% if phase.status == 'needs_attention' and phase.attention %}
+      {% set att = phase.attention %}
+      <div class="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 p-2.5">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="text-rose-600">⚠</span>
+          <span class="text-[11px] font-bold uppercase tracking-wide text-rose-700">Needs Developer Attention</span>
+          <span class="badge st-{{ 'needs_attention' if att.severity == 'high' else 'paused' if att.severity == 'medium' else 'pending' }} !py-0 ml-auto">{{ att.severity }}</span>
+        </div>
+        <p class="text-[12px] font-semibold text-ink-800">{{ att.problem }}</p>
+        {% if att.likely_cause %}
+        <p class="text-[11.5px] text-ink-600 mt-1"><span class="font-medium text-ink-500">Likely cause:</span> {{ att.likely_cause }}</p>
+        {% endif %}
+        {% if att.recommended_actions %}
+        <div class="mt-1.5">
+          <div class="text-[10px] font-semibold uppercase tracking-wide text-rose-600 mb-0.5">Recommended actions</div>
+          <ol class="space-y-0.5 list-decimal list-inside">
+            {% for a in att.recommended_actions %}
+            <li class="text-[11.5px] text-ink-700">{{ a }}</li>
+            {% endfor %}
+          </ol>
+        </div>
+        {% endif %}
+        <button class="btn btn-danger !py-1 !px-2 mt-2 !text-[11px]"
+                hx-post="/projects/{{ project.id }}/phases/{{ phase.id }}/retry"
+                hx-target="#plan-region" hx-swap="innerHTML">↻ Retry phase</button>
+      </div>
+      {% endif %}
+
       <!-- Tasks -->
       {% if phase.tasks %}
       <div class="mt-2.5">

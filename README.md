@@ -45,14 +45,31 @@ shows the generated files, and a live **Monitor** panel. The Explorer is a real
 nested file/folder tree of the target folder — click any file to view its
 contents (with line numbers) in the editor as the agents write it.
 
-### Isolated test environments
+### Isolated test environments + automatic dependency management
 
 The Test/Validator step runs in a **per-project virtual environment** created
 inside the target folder (`.venv`, via `uv` when available, else stdlib `venv`).
-It installs `requirements.txt` + `pytest`, and when a test fails with
-`ModuleNotFoundError` it **auto-installs the missing package** and re-runs —
-without spending an LLM fix attempt. Toggle with *"Test in an isolated venv"* in
-Settings.
+Before validating it installs `requirements.txt` + `pytest` **and proactively
+installs every third-party library the code imports** (scanned from the source).
+If a test still fails with `ModuleNotFoundError`, it **auto-installs the missing
+package** and re-runs — without spending an LLM fix attempt. Toggle with *"Test
+in an isolated venv"* in Settings.
+
+### Clear developer resolution reports
+
+When the automated fix loop cannot resolve a phase, the phase is marked
+**Needs Attention** with a structured report: the **problem**, its **likely
+cause**, and concrete **recommended actions** for the developer, plus the real
+test output. Rendered as a prominent card in the Build Plan and highlighted in
+the Monitor.
+
+### Graphical agent workflow
+
+The **🔀 Workflow** view (activity bar / center tab) shows the agent pipeline as
+a live graph — Architect → Coder → Test Writer → Environment → Validator →
+Fixer → Reviewer — highlighting which agent is working now, each agent's latest
+input/feedback, the Fixer→Validator feedback loop, and a rolling timeline of
+events. Updates live during a build.
 
 ### Enrich an existing app / read a PRD
 

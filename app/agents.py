@@ -152,6 +152,63 @@ def fix_failure(cfg: LLMConfig, project_summary: str, phase: dict,
     return result
 
 
+def diagnose_failure(cfg: LLMConfig, phase: dict, reason: str,
+                     stdout: str, stderr: str,
+                     existing_files: dict[str, str]) -> dict:
+    """Produce a clear, developer-facing resolution report for a phase that
+    could not be completed automatically."""
+    ctx = _files_context(existing_files, max_chars=4000)
+    user = (
+        "Automated build/fix could not resolve this phase. Write a concise report "
+        "for the human developer. Return JSON: {\"problem\": str, "
+        "\"likely_cause\": str, \"recommended_actions\": [str], "
+        "\"severity\": \"low\"|\"medium\"|\"high\"}. Actions must be concrete steps "
+        "a developer can take (commands, code changes, config).\n\n"
+        f"PHASE: {phase.get('name')}\nREASON: {reason}\n\n"
+        f"TEST STDOUT:\n{stdout[-3000:]}\n\nTEST STDERR:\n{stderr[-3000:]}\n\n"
+        f"FILES:\n{ctx}"
+    )
+    out, _diag = _safe_json(cfg, "reviewer", _JSON_SYS, user)
+    if isinstance(out, dict) and out.get("problem"):
+        out.setdefault("recommended_actions", [])
+        out.setdefault("severity", "medium")
+        return out
+    # Heuristic fallback so the developer always gets actionable guidance.
+    return _fallback_diagnosis(reason, stdout, stderr)
+
+
+def _fallback_diagnosis(reason: str, stdout: str, stderr: str) -> dict:
+    text = (stderr or "") + "\n" + (stdout or "")
+    actions: list[str] = []
+    problem = reason
+    low = text.lower()
+    if "no module named" in low:
+        import re as _re
+        mods = _re.findall(r"no module named ['\"]([\w.]+)", low)
+        problem = f"Missing dependency: {', '.join(sorted(set(mods))) or 'unknown'}"
+        actions = [
+            f"Add the package(s) to requirements.txt: {', '.join(sorted(set(mods)))}",
+            "Confirm the import name matches the pip package name.",
+        ]
+    elif "importerror" in low or "cannot import" in low:
+        problem = "A module or symbol could not be imported."
+        actions = ["Check the module path and that the referenced name exists.",
+                   "Ensure the file defining it was created in this phase."]
+    elif "assert" in low:
+        problem = "A test assertion failed — the implementation does not yet meet the expected behavior."
+        actions = ["Review the failing assertion and align the implementation with the test's expectation.",
+                   "If the test is wrong, correct the test to match the intended behavior."]
+    elif "syntaxerror" in low:
+        problem = "Generated code has a syntax error."
+        actions = ["Open the offending file in the Explorer and fix the syntax.",
+                   "Re-run the phase after correcting."]
+    else:
+        actions = ["Review the test output below.",
+                   "Fix the underlying issue in the target folder, then Retry the phase."]
+    return {"problem": problem[:400], "likely_cause": reason[:400],
+            "recommended_actions": actions, "severity": "medium"}
+
+
 def review_phase(cfg: LLMConfig, phase: dict, acceptance: list[str],
                  existing_files: dict[str, str]) -> dict:
     ctx = _files_context(existing_files, max_chars=6000)

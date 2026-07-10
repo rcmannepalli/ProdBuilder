@@ -258,6 +258,7 @@ def list_phases(pid: int) -> list[dict]:
     for r in rows:
         r["deliverables"] = db.loads(r.get("deliverables_json"), [])
         r["test_plan"] = db.loads(r.get("test_plan_json"), [])
+        r["attention"] = db.loads(r.get("attention_json"), None)
         r["tasks"] = list_tasks(r["id"])
     return rows
 
@@ -267,7 +268,13 @@ def get_phase(phase_id: int) -> dict | None:
     if r:
         r["deliverables"] = db.loads(r.get("deliverables_json"), [])
         r["test_plan"] = db.loads(r.get("test_plan_json"), [])
+        r["attention"] = db.loads(r.get("attention_json"), None)
     return r
+
+
+def set_phase_attention(phase_id: int, attention: dict | None) -> None:
+    db.execute("UPDATE phases SET attention_json = ? WHERE id = ?",
+               (db.dumps(attention) if attention else None, phase_id))
 
 
 def set_phase_status(phase_id: int, status: str) -> None:
